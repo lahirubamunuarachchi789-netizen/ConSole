@@ -914,14 +914,14 @@
     return s;
   }
 
-  /* Collapse a proxy URL to a RELATIVE path when it lives on the same host
-     that serves this page. The request then stays same-origin no matter how
-     the phone reached the site (production domain, preview URL, LAN IP,
-     in-app browser) — no CORS, no OPTIONS preflight, nothing to block. */
+  /* Pin the proxy to the page's FULL origin (window.location.origin + path)
+     when it lives on the same host. Absolute URL + default request mode —
+     raw relative paths combined with mode:'same-origin' are rejected
+     instantly (0.0s TypeError) by some Android Chrome builds. */
   function sameOriginUrl(url) {
     try {
       const u = new URL(url, window.location ? location.href : 'https://invalid.local');
-      if (window.location && u.origin === location.origin) return u.pathname + u.search;
+      if (window.location && u.origin === location.origin) return u.origin + u.pathname + u.search;
     } catch (_) { /* keep the absolute URL */ }
     return url;
   }
@@ -971,8 +971,10 @@
         stream: false,
       };
       const wire = JSON.stringify({ model: model, payload: body });
-      /* relative target (same host) -> same-origin mode: the browser applies
-         NO cors machinery at all; absolute targets keep standard cors mode */
+      /* attempt 1: rich options. attempt 2: the PLAINEST possible request —
+         some Android Chrome builds reject rich fetch option combos instantly
+         (0.0s TypeError before any bytes are sent), so the fallback strips
+         every optional field and lets the browser use its default mode. */
       const fetchOpts = {
         method: 'POST',
         headers: headers,
@@ -980,15 +982,16 @@
         cache: 'no-store',
         credentials: 'omit',
         redirect: 'follow',
-        mode: proxy.charAt(0) === '/' ? 'same-origin' : 'cors',
       };
+      const cleanOpts = { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: wire };
       /* up to 2 attempts per model — quick network blips are retried,
          long stalls (server-side timeouts) move to the next model */
       for (let netAttempt = 1; netAttempt <= 2; netAttempt++) {
         const t0 = Date.now();
+        const opts = netAttempt === 1 ? fetchOpts : cleanOpts;
         try {
-          console.log('[SOLLY] -> ' + model + ' | attempt ' + netAttempt + ' | payload ' + wire.length + ' bytes | mode ' + fetchOpts.mode);
-          const res = await fetchWithTimeout(proxy, fetchOpts, 65000);
+          console.log('[SOLLY] -> ' + model + ' | attempt ' + netAttempt + (netAttempt === 2 ? ' (clean fallback)' : '') + ' | payload ' + wire.length + ' bytes');
+          const res = await fetchWithTimeout(proxy, opts, 65000);
           const data = await res.json().catch(() => ({}));
           console.log('[SOLLY] <- ' + model + ' | HTTP ' + res.status + ' | ' + ((Date.now() - t0) / 1000).toFixed(1) + 's');
           if (!res.ok) {

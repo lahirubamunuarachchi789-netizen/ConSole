@@ -526,11 +526,12 @@ async function mrnAnalyse() {
     let orProxy = (window.CONFIG && CONFIG.OPENROUTER_PROXY_URL)
       || (window.CONFIG && CONFIG.GROQ_PROXY_URL ? CONFIG.GROQ_PROXY_URL.replace('/api/groq', '/api/openrouter') : '')
       || 'http://localhost:8787/api/openrouter';
-    /* collapse to a relative URL when the proxy shares this page's host —
-       keeps the request same-origin on phones (no CORS/preflight at all) */
+    /* pin to the page's FULL origin (absolute URL) when the proxy shares
+       this page's host — raw relative paths are rejected instantly by
+       some Android Chrome builds */
     try {
       const u = new URL(orProxy, location.href);
-      if (u.origin === location.origin) orProxy = u.pathname + u.search;
+      if (u.origin === location.origin) orProxy = u.origin + u.pathname + u.search;
     } catch (_) { /* keep absolute */ }
     const modelsToTry = ['minimax/minimax-m3:free', 'google/gemma-4-31b-it:free', 'dots-studio/dots-3-note-preview:free', 'google/gemma-4-26b-a4b-it:free', 'nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free'];
     let rawText = '';
@@ -557,14 +558,29 @@ async function mrnAnalyse() {
             max_tokens: maxTokens,
             stream: false,
           };
-          const attempt = await fetchWithTimeout(orProxy, {
-            method: 'POST',
-            headers: orHeaders,
-            body: JSON.stringify({ model: model, payload: orBody }),
-            cache: 'no-store',
-            credentials: 'omit',
-            redirect: 'follow',
-          }, 180000);
+          let attempt;
+          const tFetch = Date.now();
+          try {
+            attempt = await fetchWithTimeout(orProxy, {
+              method: 'POST',
+              headers: orHeaders,
+              body: JSON.stringify({ model: model, payload: orBody }),
+              cache: 'no-store',
+              credentials: 'omit',
+              redirect: 'follow',
+            }, 180000);
+          } catch (instantErr) {
+            /* instant rejection (some Android Chrome builds choke on rich
+               option combos) -> retry with the plainest possible request */
+            if (Date.now() - tFetch < 250) {
+              console.warn('[MRN] instant fetch rejection - retrying with clean minimal fetch');
+              attempt = await fetchWithTimeout(orProxy, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ model: model, payload: orBody }),
+              }, 180000);
+            } else { throw instantErr; }
+          }
 
           const d = await attempt.json().catch(() => ({}));
           if (!attempt.ok) {

@@ -15,13 +15,13 @@
 (function () {
   'use strict';
 
-  /* Collapse a proxy URL to a relative path when it lives on the same host
-     that serves this page — keeps the request same-origin (no CORS, no
-     preflight) no matter how the phone reached the site. */
+  /* Pin the proxy to the page's FULL origin (absolute URL) when it lives on
+     the same host — raw relative paths are rejected instantly by some
+     Android Chrome builds. */
   function sameOrigin(url) {
     try {
       const u = new URL(url, window.location ? location.href : 'https://invalid.local');
-      if (window.location && u.origin === location.origin) return u.pathname + u.search;
+      if (window.location && u.origin === location.origin) return u.origin + u.pathname + u.search;
     } catch (e) { /* keep absolute */ }
     return url;
   }
@@ -44,7 +44,19 @@
 
   async function geminiRequest(model, payload) {
     const t = geminiTarget(model);
-    const res = await fetch(t.url, { method: 'POST', headers: t.headers, body: t.wrap(payload), cache: 'no-store', credentials: 'omit', redirect: 'follow' });
+    const body = t.wrap(payload);
+    const t0 = Date.now();
+    let res;
+    try {
+      res = await fetch(t.url, { method: 'POST', headers: t.headers, body: body, cache: 'no-store', credentials: 'omit', redirect: 'follow' });
+    } catch (e) {
+      /* instant rejection (some Android Chrome builds choke on rich option
+         combos) -> retry immediately with the plainest possible request */
+      if (Date.now() - t0 < 250) {
+        console.warn('[GEMINI] instant fetch rejection - retrying with clean minimal fetch');
+        res = await fetch(t.url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: body });
+      } else { throw e; }
+    }
     const data = await res.json().catch(function () { return {}; });
     if (!res.ok) {
       const err = new Error((data && data.error && data.error.message) || ('HTTP ' + res.status));
