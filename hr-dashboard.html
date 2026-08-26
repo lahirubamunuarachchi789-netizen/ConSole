@@ -1,0 +1,303 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>HR Department — SOLE MATRIX</title>
+  <link rel="stylesheet" href="assets/css/style.css" />
+  <link rel="stylesheet" href="assets/css/dashboard.css" />
+  <link rel="stylesheet" href="assets/css/hr-dashboard.css" />
+  <link rel="stylesheet" href="assets/css/gatepass-management.css" />
+  <link rel="stylesheet" href="assets/css/reports.css" />
+  <link rel="stylesheet" href="assets/css/plan-tracker.css" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Orbitron:wght@700;900&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
+</head>
+<body class="dashboard-body hr-theme">
+
+  <!-- ─── Animated Background ─── -->
+  <div class="bg-canvas" aria-hidden="true">
+    <div class="bg-grid"></div>
+    <div class="bg-glow glow-1"></div>
+    <div class="bg-glow glow-2"></div>
+    <div class="dash-particle p1"></div>
+    <div class="dash-particle p2"></div>
+    <div class="dash-particle p3"></div>
+    <div class="dash-particle p4"></div>
+    <div class="dash-particle p5"></div>
+  </div>
+
+  <!-- ─── Page Shell ─── -->
+  <div class="dash-shell">
+
+    <!-- ══ TOP NAV BAR ══════════════════════════════════════════ -->
+    <header class="dash-topbar" role="banner">
+      <div class="topbar-left">
+        <div class="topbar-logo">
+          <span class="logo-icon-sm"><i class="fa-solid fa-shoe-prints"></i></span>
+          <div>
+            <span class="topbar-brand">SOLE MATRIX</span>
+            <span class="topbar-dept-pill hr-pill">
+              <i class="fa-solid fa-users"></i>
+              HR Department
+            </span>
+          </div>
+        </div>
+      </div>
+
+      <div class="topbar-center">
+        <div class="topbar-clock" id="topbarClock" aria-live="polite" aria-label="Current time"></div>
+        <div class="topbar-date" id="topbarDate"></div>
+      </div>
+
+      <div class="topbar-right">
+        <div class="topbar-user-info">
+          <div class="user-avatar" id="userAvatar" aria-hidden="true"></div>
+          <div class="user-meta">
+            <span class="user-name" id="userName">—</span>
+            <span class="user-role">HR Manager</span>
+          </div>
+        </div>
+        <button class="btn-logout" id="logoutBtn" onclick="handleLogout()" aria-label="Sign out">
+          <i class="fa-solid fa-right-from-bracket"></i>
+          <span>Sign Out</span>
+        </button>
+      </div>
+    </header>
+
+    <!-- ══ MAIN CONTENT ══════════════════════════════════════════ -->
+    <main class="dash-main" role="main">
+
+      <!-- Page heading -->
+      <section class="dash-hero" aria-labelledby="dashTitle">
+        <div class="dash-hero-text">
+          <p class="dash-greeting" id="dashGreeting">Good morning,</p>
+          <h1 class="dash-title" id="dashTitle">
+            <span id="dashUserName">—</span>
+          </h1>
+          <p class="dash-subtitle">
+            Manage employee gatepasses and transportation services with ease.
+          </p>
+        </div>
+        <div class="dash-hero-badge hr-badge" aria-hidden="true">
+          <div class="hero-badge-ring">
+            <i class="fa-solid fa-users"></i>
+          </div>
+          <span>HR Department</span>
+        </div>
+      </section>
+
+      <!-- ── Stats Strip ─────────────────────────────────────── -->
+      <section class="stats-strip" aria-label="Today's summary">
+        <div class="stat-chip">
+          <i class="fa-solid fa-calendar-day"></i>
+          <span class="stat-label">Today</span>
+          <span class="stat-value" id="statToday">—</span>
+        </div>
+        <div class="stat-divider" aria-hidden="true"></div>
+        <div class="stat-chip">
+          <i class="fa-solid fa-building"></i>
+          <span class="stat-label">Department</span>
+          <span class="stat-value">HR Department</span>
+        </div>
+        <div class="stat-divider" aria-hidden="true"></div>
+        <div class="stat-chip">
+          <i class="fa-solid fa-circle-dot status-active"></i>
+          <span class="stat-label">Status</span>
+          <span class="stat-value status-active">Active</span>
+        </div>
+      </section>
+
+      <!-- ── Module Cards Grid ───────────────────────────────── -->
+      <section class="modules-grid hr-grid" aria-label="HR modules">
+
+        <!-- Card 1 — Pending Gatepass -->
+        <article class="module-card hr-card-gatepass" role="button" tabindex="0"
+          aria-label="Pending Gatepass module"
+          onclick="openModule('gatepass')"
+          onkeydown="if(event.key==='Enter'||event.key===' ')openModule('gatepass')">
+          <div class="card-glow-border"></div>
+          <div class="card-bg-icon" aria-hidden="true">
+            <i class="fa-solid fa-id-card-clip"></i>
+          </div>
+          <div class="card-inner">
+            <div class="card-icon-wrap">
+              <div class="card-icon hr-icon-gatepass">
+                <i class="fa-solid fa-id-card-clip"></i>
+              </div>
+              <div class="card-icon-ring"></div>
+            </div>
+            <div class="card-content">
+              <span class="card-number">01</span>
+              <h2 class="card-title">Pending Gatepass</h2>
+              <p class="card-desc">Review, approve, and manage employee gatepass requests for authorized exit and entry.</p>
+            </div>
+            <div class="card-footer">
+              <span class="card-tag"><i class="fa-solid fa-clock"></i> Approvals</span>
+              <div class="card-badge-notification">
+                <span class="badge-count">12</span>
+                <span class="badge-label">Pending</span>
+              </div>
+              <span class="card-arrow"><i class="fa-solid fa-arrow-right"></i></span>
+            </div>
+          </div>
+          <div class="card-shine" aria-hidden="true"></div>
+        </article>
+
+        <!-- Card 2 — Transportation -->
+        <article class="module-card hr-card-transport" role="button" tabindex="0"
+          aria-label="Transportation module"
+          onclick="openModule('transportation')"
+          onkeydown="if(event.key==='Enter'||event.key===' ')openModule('transportation')">
+          <div class="card-glow-border"></div>
+          <div class="card-bg-icon" aria-hidden="true">
+            <i class="fa-solid fa-van-shuttle"></i>
+          </div>
+          <div class="card-inner">
+            <div class="card-icon-wrap">
+              <div class="card-icon hr-icon-transport">
+                <i class="fa-solid fa-van-shuttle"></i>
+              </div>
+              <div class="card-icon-ring"></div>
+            </div>
+            <div class="card-content">
+              <span class="card-number">02</span>
+              <h2 class="card-title">Transportation</h2>
+              <p class="card-desc">Schedule and track employee transportation services, routes, and vehicle assignments.</p>
+            </div>
+            <div class="card-footer">
+              <span class="card-tag"><i class="fa-solid fa-truck"></i> Transport</span>
+              <div class="card-badge-notification">
+                <span class="badge-count">0</span>
+                <span class="badge-label">Pending</span>
+              </div>
+              <span class="card-arrow"><i class="fa-solid fa-arrow-right"></i></span>
+            </div>
+          </div>
+          <div class="card-shine" aria-hidden="true"></div>
+        </article>
+
+        <!-- Card 3 — Reports Center -->
+        <article class="module-card card-reports" role="button" tabindex="0"
+          aria-label="Reports Center module"
+          onclick="openReportsSection()"
+          onkeydown="if(event.key==='Enter'||event.key===' ')openReportsSection()">
+          <div class="card-glow-border"></div>
+          <div class="card-bg-icon" aria-hidden="true">
+            <i class="fa-solid fa-chart-column"></i>
+          </div>
+          <div class="card-inner">
+            <div class="card-icon-wrap">
+              <div class="card-icon" style="background:linear-gradient(135deg,#8b5cf6,#7c3aed);box-shadow:0 8px 24px rgba(139,92,246,0.4);">
+                <i class="fa-solid fa-chart-column"></i>
+              </div>
+              <div class="card-icon-ring"></div>
+            </div>
+            <div class="card-content">
+              <span class="card-number">03</span>
+              <h2 class="card-title">Reports</h2>
+              <p class="card-desc">Production output by date & time, PO-wise size summaries, gatepasses, and MRN PDFs.</p>
+            </div>
+            <div class="card-footer">
+              <span class="card-tag" style="background:rgba(139,92,246,0.18);border:1px solid rgba(139,92,246,0.4);color:#a78bfa;"><i class="fa-solid fa-chart-pie"></i> Analytics</span>
+              <span class="card-arrow"><i class="fa-solid fa-arrow-right"></i></span>
+            </div>
+          </div>
+          <div class="card-shine" aria-hidden="true"></div>
+        </article>
+
+        <!-- Card 4 — Plan Tracker -->
+        <article class="module-card card-plantracker" role="button" tabindex="0"
+          aria-label="Plan Tracker module"
+          onclick="openPlanTracker()"
+          onkeydown="if(event.key==='Enter'||event.key===' ')openPlanTracker()">
+          <div class="card-glow-border"></div>
+          <div class="card-bg-icon" aria-hidden="true">
+            <i class="fa-solid fa-route"></i>
+          </div>
+          <div class="card-inner">
+            <div class="card-icon-wrap">
+              <div class="card-icon" style="background:linear-gradient(135deg,#f59e0b,#d97706);box-shadow:0 8px 24px rgba(245,158,11,0.4);">
+                <i class="fa-solid fa-route"></i>
+              </div>
+              <div class="card-icon-ring"></div>
+            </div>
+            <div class="card-content">
+              <span class="card-number">04</span>
+              <h2 class="card-title">Plan Tracker</h2>
+              <p class="card-desc">Enter a plan name to see its live stage across MRN, Stores dispatch, GFU output and gatepasses.</p>
+            </div>
+            <div class="card-footer">
+              <span class="card-tag" style="background:rgba(245,158,11,0.18);border:1px solid rgba(245,158,11,0.4);color:#fbbf24;"><i class="fa-solid fa-location-dot"></i> Tracking</span>
+              <span class="card-arrow"><i class="fa-solid fa-arrow-right"></i></span>
+            </div>
+          </div>
+          <div class="card-shine" aria-hidden="true"></div>
+        </article>
+
+      </section><!-- /modules-grid -->
+
+    </main><!-- /dash-main -->
+
+    <!-- Footer -->
+    <footer class="dash-footer">
+      <span>&copy; 2026 Concord Footwear (Pvt) Ltd &mdash; SOLE MATRIX v1.0</span>
+      <span class="footer-sep" aria-hidden="true">·</span>
+      <span>HR Department Module</span>
+    </footer>
+
+  </div><!-- /dash-shell -->
+
+  <!-- ══ MODULE MODAL OVERLAY ══════════════════════════════════ -->
+  <div class="module-modal hidden" id="moduleModal" role="dialog" aria-modal="true"
+    aria-labelledby="modalModuleTitle" tabindex="-1">
+    <div class="module-modal-card" id="moduleModalCard">
+      <div class="module-modal-header">
+        <div class="module-modal-icon" id="modalIcon"></div>
+        <div>
+          <p class="module-modal-label" id="modalLabel"></p>
+          <h2 class="module-modal-title" id="modalModuleTitle"></h2>
+        </div>
+        <button class="modal-close-btn" onclick="closeModule()" aria-label="Close module">
+          <i class="fa-solid fa-xmark"></i>
+        </button>
+      </div>
+      <div class="module-modal-body" id="modalBody">
+        <!-- Content injected by JS -->
+      </div>
+    </div>
+  </div>
+
+  <!-- ══ LOGOUT CONFIRM MODAL ══════════════════════════════════ -->
+  <div class="logout-modal hidden" id="logoutModal" role="dialog" aria-modal="true"
+    aria-labelledby="logoutTitle" tabindex="-1">
+    <div class="logout-modal-card">
+      <div class="logout-modal-icon">
+        <i class="fa-solid fa-right-from-bracket"></i>
+      </div>
+      <h2 class="logout-modal-title" id="logoutTitle">Sign Out?</h2>
+      <p class="logout-modal-body">You'll be returned to the login screen.</p>
+      <div class="logout-modal-actions">
+        <button class="btn-cancel" onclick="cancelLogout()">Stay</button>
+        <button class="btn-confirm-logout" onclick="confirmLogout()">Sign Out</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- jsPDF Library for PDF Generation -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+  
+  <script src="assets/js/config.js"></script>
+  <script src="assets/js/gemini-client.js"></script>
+  <script src="assets/js/whatsapp.js?v=2"></script>
+  <!-- Reports Center (shared across departments) -->
+  <script src="assets/js/reports.js"></script>
+  <!-- Plan Tracker (shared across departments) -->
+  <script src="assets/js/plan-tracker.js"></script>
+  <script src="assets/js/hr-dashboard.js"></script>
+  <!-- Solly AI Assistant (Gemini-powered, on every department dashboard) -->
+  <script src="assets/js/solly-ai.js"></script>
+</body>
+</html>

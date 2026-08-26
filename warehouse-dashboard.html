@@ -1,0 +1,257 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Warehouse & Logistics — SOLE MATRIX</title>
+  <link rel="stylesheet" href="assets/css/style.css" />
+  <link rel="stylesheet" href="assets/css/dashboard.css" />
+  <link rel="stylesheet" href="assets/css/warehouse.css" />
+  <link rel="stylesheet" href="assets/css/reports.css" />
+  <link rel="stylesheet" href="assets/css/plan-tracker.css" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Orbitron:wght@700;900&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
+</head>
+<body class="dashboard-body">
+
+  <!-- ─── Animated Background ─── -->
+  <div class="bg-canvas" aria-hidden="true">
+    <div class="bg-grid"></div>
+    <div class="bg-glow glow-1"></div>
+    <div class="bg-glow glow-2"></div>
+    <div class="dash-particle p1"></div>
+    <div class="dash-particle p2"></div>
+    <div class="dash-particle p3"></div>
+    <div class="dash-particle p4"></div>
+    <div class="dash-particle p5"></div>
+  </div>
+
+  <!-- ─── Page Shell ─── -->
+  <div class="dash-shell">
+
+    <!-- ══ TOP NAV BAR ══════════════════════════════════════════ -->
+    <header class="dash-topbar" role="banner">
+      <div class="topbar-left">
+        <div class="topbar-logo">
+          <span class="logo-icon-sm"><i class="fa-solid fa-shoe-prints"></i></span>
+          <div>
+            <span class="topbar-brand">SOLE MATRIX</span>
+            <span class="topbar-dept-pill wh-pill">
+              <i class="fa-solid fa-warehouse"></i>
+              Warehouse &amp; Logistics
+            </span>
+          </div>
+        </div>
+      </div>
+      <div class="topbar-center">
+        <div class="topbar-clock" id="topbarClock" aria-live="polite"></div>
+        <div class="topbar-date"  id="topbarDate"></div>
+      </div>
+      <div class="topbar-right">
+        <div class="topbar-user-info">
+          <div class="user-avatar" id="userAvatar" aria-hidden="true"></div>
+          <div class="user-meta">
+            <span class="user-name" id="userName">—</span>
+            <span class="user-role">Warehouse Operator</span>
+          </div>
+        </div>
+        <button class="btn-logout" onclick="whHandleLogout()" aria-label="Sign out">
+          <i class="fa-solid fa-right-from-bracket"></i>
+          <span>Sign Out</span>
+        </button>
+      </div>
+    </header>
+
+    <!-- ══ MAIN CONTENT ══════════════════════════════════════════ -->
+    <main class="dash-main" role="main" id="whMain">
+
+      <!-- ── Hero ───────────────────────────────────────────── -->
+      <section class="dash-hero" aria-labelledby="dashTitle">
+        <div class="dash-hero-text">
+          <p class="dash-greeting" id="dashGreeting">Good morning,</p>
+          <h1 class="dash-title"><span id="dashUserName">—</span></h1>
+          <p class="dash-subtitle">Manage pending MRNs and run kitting workflows.</p>
+        </div>
+        <div class="dash-hero-badge" aria-hidden="true">
+          <div class="hero-badge-ring wh-ring">
+            <i class="fa-solid fa-warehouse"></i>
+          </div>
+          <span>Warehouse &amp; Logistics</span>
+        </div>
+      </section>
+
+      <!-- ── Stats Strip ─────────────────────────────────────── -->
+      <section class="stats-strip" aria-label="Summary">
+        <div class="stat-chip">
+          <i class="fa-solid fa-calendar-day"></i>
+          <span class="stat-label">Today</span>
+          <span class="stat-value" id="statToday">—</span>
+        </div>
+        <div class="stat-divider"></div>
+        <div class="stat-chip">
+          <i class="fa-solid fa-file-invoice"></i>
+          <span class="stat-label">Pending MRNs</span>
+          <span class="stat-value wh-accent" id="statPending">—</span>
+        </div>
+        <div class="stat-divider"></div>
+        <div class="stat-chip">
+          <i class="fa-solid fa-circle-dot status-active"></i>
+          <span class="stat-label">Status</span>
+          <span class="stat-value status-active">Active</span>
+        </div>
+      </section>
+
+      <!-- ══ REPORTS CENTER PANEL ═════════════════════════════ -->
+      <section class="wh-section" aria-label="Reports Center">
+        <div class="wh-section-header">
+          <div class="wh-section-title">
+            <i class="fa-solid fa-chart-column"></i>
+            <h2>Reports Center</h2>
+          </div>
+          <button class="btn-refresh" onclick="openReportsSection()" aria-label="Open reports center">
+            <i class="fa-solid fa-chart-pie"></i> Open Reports
+          </button>
+        </div>
+        <p style="margin:-6px 0 4px;font-size:0.85rem;color:#9aa3b5;">
+          Production output by date & time window, PO-wise size summaries, Storse To GFU / Desma In gatepasses, and all related MRNs — each downloadable as PDF.
+        </p>
+      </section>
+
+      <!-- ══ PLAN TRACKER PANEL ═══════════════════════════════ -->
+      <section class="wh-section" aria-label="Plan Tracker">
+        <div class="wh-section-header">
+          <div class="wh-section-title">
+            <i class="fa-solid fa-route"></i>
+            <h2>Plan Tracker</h2>
+          </div>
+          <button class="btn-refresh" onclick="openPlanTracker()" aria-label="Open plan tracker">
+            <i class="fa-solid fa-magnifying-glass-location"></i> Track a Plan
+          </button>
+        </div>
+        <p style="margin:-6px 0 4px;font-size:0.85rem;color:#9aa3b5;">
+          Enter a plan name (e.g. 1ST-EXTRA-GLUING-PLAN-WEEK-24-20260808) to see its live stage across MRN, Stores dispatch, GFU production output and gatepasses.
+        </p>
+      </section>
+
+      <!-- ══ PENDING MRN PANEL ════════════════════════════════ -->
+      <section class="wh-section" id="pendingPanel">
+        <div class="wh-section-header">
+          <div class="wh-section-title">
+            <i class="fa-solid fa-inbox"></i>
+            <h2>Pending MRNs</h2>
+          </div>
+          <button class="btn-refresh" id="btnRefresh" onclick="whLoadMRNs()" aria-label="Refresh list">
+            <i class="fa-solid fa-rotate-right"></i>
+            Refresh
+          </button>
+        </div>
+
+        <!-- Loading state -->
+        <div class="wh-loading" id="mrnLoading">
+          <div class="wh-spinner"></div>
+          <p>Fetching pending MRNs from Cloudinary…</p>
+        </div>
+
+        <!-- Empty state -->
+        <div class="wh-empty hidden" id="mrnEmpty">
+          <i class="fa-solid fa-box-open"></i>
+          <p>No pending MRNs found.</p>
+          <span>New MRNs submitted from Outsole Production will appear here.</span>
+        </div>
+
+        <!-- Error state -->
+        <div class="wh-error hidden" id="mrnError">
+          <i class="fa-solid fa-triangle-exclamation"></i>
+          <p id="mrnErrorMsg">Could not load MRNs.</p>
+          <button class="btn-refresh" onclick="whLoadMRNs()">
+            <i class="fa-solid fa-rotate-right"></i> Try Again
+          </button>
+        </div>
+
+        <!-- MRN cards grid -->
+        <div class="mrn-cards-grid" id="mrnCardsGrid"></div>
+      </section>
+
+    </main>
+
+    <footer class="dash-footer">
+      <span>&copy; 2026 Concord Footwear (Pvt) Ltd &mdash; SOLE MATRIX v1.0</span>
+      <span class="footer-sep">·</span>
+      <span>Warehouse &amp; Logistics Module</span>
+    </footer>
+  </div>
+
+  <!-- ══ MRN DETAIL MODAL ══════════════════════════════════════ -->
+  <div class="wh-modal hidden" id="mrnDetailModal" role="dialog" aria-modal="true"
+       aria-labelledby="detailModalTitle" tabindex="-1">
+    <div class="wh-modal-card" id="mrnDetailCard">
+      <div class="wh-modal-header">
+        <div class="wh-modal-icon"><i class="fa-solid fa-file-invoice"></i></div>
+        <div>
+          <p class="wh-modal-label">ACTIVE MRN</p>
+          <h2 class="wh-modal-title" id="detailModalTitle">—</h2>
+        </div>
+        <button class="wh-modal-close" onclick="whCloseDetail()" aria-label="Close">
+          <i class="fa-solid fa-xmark"></i>
+        </button>
+      </div>
+      <div class="wh-modal-body" id="mrnDetailBody">
+        <!-- injected by JS -->
+      </div>
+    </div>
+  </div>
+
+  <!-- ══ KITTING WORKFLOW MODAL ════════════════════════════════ -->
+  <div class="wh-modal hidden" id="kittingModal" role="dialog" aria-modal="true"
+       aria-labelledby="kittingModalTitle" tabindex="-1">
+    <div class="wh-modal-card kitting-card" id="kittingCard">
+      <div class="wh-modal-header">
+        <div class="wh-modal-icon kitting-icon"><i class="fa-solid fa-qrcode"></i></div>
+        <div>
+          <p class="wh-modal-label">KITTING WORKFLOW</p>
+          <h2 class="wh-modal-title" id="kittingModalTitle">—</h2>
+        </div>
+        <button class="wh-modal-close" onclick="whCloseKitting()" aria-label="Close">
+          <i class="fa-solid fa-xmark"></i>
+        </button>
+      </div>
+      <div class="wh-modal-body" id="kittingBody">
+        <!-- injected by JS -->
+      </div>
+    </div>
+  </div>
+
+  <!-- ══ LOGOUT CONFIRM MODAL ═════════════════════════════════ -->
+  <div class="logout-modal hidden" id="logoutModal" role="dialog" aria-modal="true"
+       aria-labelledby="logoutTitle" tabindex="-1">
+    <div class="logout-modal-card">
+      <div class="logout-modal-icon"><i class="fa-solid fa-right-from-bracket"></i></div>
+      <h2 class="logout-modal-title" id="logoutTitle">Sign Out?</h2>
+      <p class="logout-modal-body">You'll be returned to the login screen.</p>
+      <div class="logout-modal-actions">
+        <button class="btn-cancel" onclick="whCancelLogout()">Stay</button>
+        <button class="btn-confirm-logout" onclick="whConfirmLogout()">Sign Out</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── QR SCANNER TOAST ── -->
+  <div class="wh-toast" id="whToast" role="status" aria-live="polite"></div>
+
+  <script src="assets/js/config.js"></script>
+  <script src="assets/js/gemini-client.js"></script>
+  <script src="assets/js/whatsapp.js?v=2"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
+  <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+  <!-- Reports Center (shared across departments) -->
+  <script src="assets/js/reports.js"></script>
+  <!-- Plan Tracker (shared across departments) -->
+  <script src="assets/js/plan-tracker.js"></script>
+  <script src="assets/js/warehouse.js"></script>
+  <!-- Solly AI Assistant (Gemini-powered, on every department dashboard) -->
+  <script src="assets/js/solly-ai.js"></script>
+</body>
+</html>

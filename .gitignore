@@ -1,0 +1,11 @@
+# ═══ SOLE MATRIX — never commit credentials ═══
+server/config.local.json
+server/service-account*.json
+*.pem
+*.key
+.env
+
+# Misc
+node_modules/
+.DS_Store
+Thumbs.db

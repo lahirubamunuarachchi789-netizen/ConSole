@@ -1,0 +1,295 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Desma Department — SOLE MATRIX</title>
+  <link rel="stylesheet" href="assets/css/style.css" />
+  <link rel="stylesheet" href="assets/css/dashboard.css" />
+  <link rel="stylesheet" href="assets/css/desma-dashboard.css" />
+  <link rel="stylesheet" href="assets/css/reports.css" />
+  <link rel="stylesheet" href="assets/css/plan-tracker.css" />
+  <link rel="stylesheet" href="assets/css/production-in.css" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Orbitron:wght@700;900&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
+</head>
+<body class="dashboard-body desma-body">
+
+  <!-- ─── Animated Background ─── -->
+  <div class="bg-canvas" aria-hidden="true">
+    <div class="bg-grid"></div>
+    <div class="bg-glow glow-1"></div>
+    <div class="bg-glow glow-2"></div>
+    <div class="bg-glow glow-desma"></div>
+    <div class="dash-particle p1"></div>
+    <div class="dash-particle p2"></div>
+    <div class="dash-particle p3"></div>
+    <div class="dash-particle p4"></div>
+    <div class="dash-particle p5"></div>
+    <!-- Desma themed shapes -->
+    <div class="desma-shape shape-1"></div>
+    <div class="desma-shape shape-2"></div>
+    <div class="desma-shape shape-3"></div>
+  </div>
+
+  <!-- ─── Page Shell ─── -->
+  <div class="dash-shell">
+
+    <!-- ══ TOP NAV BAR ══════════════════════════════════════════ -->
+    <header class="dash-topbar desma-topbar" role="banner">
+      <div class="topbar-left">
+        <div class="topbar-logo">
+          <span class="logo-icon-sm desma-icon"><i class="fa-solid fa-shoe-prints"></i></span>
+          <div>
+            <span class="topbar-brand">SOLE MATRIX</span>
+            <span class="topbar-dept-pill desma-pill">
+              <i class="fa-solid fa-gears"></i>
+              Desma Department
+            </span>
+          </div>
+        </div>
+      </div>
+
+      <div class="topbar-center">
+        <div class="topbar-clock" id="topbarClock" aria-live="polite" aria-label="Current time"></div>
+        <div class="topbar-date" id="topbarDate"></div>
+      </div>
+
+      <div class="topbar-right">
+        <div class="topbar-user-info">
+          <div class="user-avatar desma-avatar" id="userAvatar" aria-hidden="true"></div>
+          <div class="user-meta">
+            <span class="user-name" id="userName">—</span>
+            <span class="user-role">Desma Operator</span>
+          </div>
+        </div>
+        <button class="btn-logout desma-logout" id="logoutBtn" onclick="handleLogout()" aria-label="Sign out">
+          <i class="fa-solid fa-right-from-bracket"></i>
+          <span>Sign Out</span>
+        </button>
+      </div>
+    </header>
+
+    <!-- ══ MAIN CONTENT ══════════════════════════════════════════ -->
+    <main class="dash-main" role="main">
+
+      <!-- Page heading -->
+      <section class="dash-hero desma-hero" aria-labelledby="dashTitle">
+        <div class="dash-hero-text">
+          <p class="dash-greeting desma-greeting" id="dashGreeting">Welcome,</p>
+          <h1 class="dash-title desma-title" id="dashTitle">
+            <span id="dashUserName">—</span>
+          </h1>
+          <p class="dash-subtitle desma-subtitle">
+            Precision injection molding at your fingertips.
+          </p>
+        </div>
+        <div class="dash-hero-badge desma-badge" aria-hidden="true">
+          <div class="hero-badge-ring desma-ring">
+            <i class="fa-solid fa-gears"></i>
+          </div>
+          <span>Desma Department</span>
+        </div>
+      </section>
+
+      <!-- ── Stats Strip ─────────────────────────────────────── -->
+      <section class="stats-strip desma-stats" aria-label="Today's summary">
+        <div class="stat-chip desma-stat">
+          <i class="fa-solid fa-calendar-day"></i>
+          <span class="stat-label">Today</span>
+          <span class="stat-value" id="statToday">—</span>
+        </div>
+        <div class="stat-divider desma-divider" aria-hidden="true"></div>
+        <div class="stat-chip desma-stat">
+          <i class="fa-solid fa-building"></i>
+          <span class="stat-label">Department</span>
+          <span class="stat-value">Desma</span>
+        </div>
+        <div class="stat-divider desma-divider" aria-hidden="true"></div>
+        <div class="stat-chip desma-stat">
+          <i class="fa-solid fa-circle-dot status-active desma-status"></i>
+          <span class="stat-label">Status</span>
+          <span class="stat-value status-active desma-status">Active</span>
+        </div>
+        <div class="stat-divider desma-divider" aria-hidden="true"></div>
+        <div class="stat-chip desma-stat">
+          <i class="fa-solid fa-microchip"></i>
+          <span class="stat-label">Machine</span>
+          <span class="stat-value">Online</span>
+        </div>
+      </section>
+
+      <!-- ── Centered Module Card ───────────────────────────────── -->
+      <section class="desma-module-container" aria-label="Desma module">
+        
+        <div class="desma-intro">
+          <div class="desma-intro-icon">
+            <i class="fa-solid fa-gears"></i>
+          </div>
+          <h2 class="desma-intro-title">Desma Injection Molding</h2>
+          <p class="desma-intro-text">
+            Record and track materials received for direct injection molding production.
+            Begin your workflow by selecting the module below.
+          </p>
+        </div>
+
+        <!-- Single Centered Card — Desma In -->
+        <article class="desma-main-card" role="button" tabindex="0"
+          aria-label="Desma In module"
+          onclick="openDesmaIn()"
+          onkeydown="if(event.key==='Enter'||event.key===' ')openDesmaIn()">
+          
+          <div class="desma-card-glow"></div>
+          <div class="desma-card-bg-pattern" aria-hidden="true">
+            <div class="pattern-line l1"></div>
+            <div class="pattern-line l2"></div>
+            <div class="pattern-line l3"></div>
+            <div class="pattern-circle c1"></div>
+            <div class="pattern-circle c2"></div>
+            <div class="pattern-circle c3"></div>
+          </div>
+          
+          <div class="desma-card-inner">
+            <div class="desma-card-icon-wrap">
+              <div class="desma-card-icon">
+                <i class="fa-solid fa-box-open"></i>
+              </div>
+              <div class="desma-card-icon-ring"></div>
+              <div class="desma-card-icon-pulse"></div>
+            </div>
+            
+            <div class="desma-card-content">
+              <span class="desma-card-badge">CORE MODULE</span>
+              <h2 class="desma-card-title">
+                <span class="title-icon"><i class="fa-solid fa-arrow-right-to-bracket"></i></span>
+                Desma In
+              </h2>
+              <p class="desma-card-desc">
+                Record incoming materials and components for Desma direct injection molding operations. 
+                Scan QR codes, verify quantities, and track material flow seamlessly.
+              </p>
+              
+              <div class="desma-card-features">
+                <div class="feature-item">
+                  <i class="fa-solid fa-qrcode"></i>
+                  <span>QR Scanning</span>
+                </div>
+                <div class="feature-item">
+                  <i class="fa-solid fa-clipboard-check"></i>
+                  <span>Verification</span>
+                </div>
+                <div class="feature-item">
+                  <i class="fa-solid fa-database"></i>
+                  <span>Real-time Tracking</span>
+                </div>
+              </div>
+            </div>
+            
+            <div class="desma-card-footer">
+              <span class="desma-card-tag">
+                <i class="fa-solid fa-microchip"></i> 
+                Injection Molding
+              </span>
+              <span class="desma-card-arrow">
+                <span class="arrow-text">START</span>
+                <i class="fa-solid fa-arrow-right"></i>
+              </span>
+            </div>
+          </div>
+          
+          <div class="desma-card-shine" aria-hidden="true"></div>
+        </article>
+
+        <!-- Secondary Card — Outsole Return -->
+        <article role="button" tabindex="0"
+          aria-label="Outsole Return"
+          onclick="openDesmaReturn()"
+          onkeydown="if(event.key==='Enter'||event.key===' ')openDesmaReturn()"
+          style="display:flex;align-items:center;gap:16px;width:100%;max-width:640px;margin:20px auto 0;padding:18px 22px;background:rgba(255,255,255,0.03);border:1px solid rgba(20,184,166,0.35);border-radius:16px;cursor:pointer;transition:all .25s ease;font-family:inherit;text-align:left;"
+          onmouseover="this.style.borderColor='rgba(20,184,166,0.75)';this.style.transform='translateY(-2px)'"
+          onmouseout="this.style.borderColor='rgba(20,184,166,0.35)';this.style.transform='none'">
+          <span style="width:46px;height:46px;border-radius:12px;display:flex;align-items:center;justify-content:center;background:linear-gradient(135deg,#14b8a6,#0d9488);color:#fff;font-size:1.1rem;box-shadow:0 6px 18px rgba(20,184,166,.45);flex-shrink:0;"><i class="fa-solid fa-rotate-left"></i></span>
+          <span style="flex:1;min-width:0;">
+            <span style="display:block;font-size:1rem;font-weight:700;color:#eef1f8;">Outsole Return</span>
+            <span style="display:block;font-size:.82rem;color:#9aa3b5;margin-top:2px;">Return outsole materials to GFU or Storse. Scan QR codes to log returns with status, date &amp; user tracking.</span>
+          </span>
+          <span style="color:#2dd4bf;flex-shrink:0;"><i class="fa-solid fa-arrow-right"></i></span>
+        </article>
+
+        <!-- Secondary Card — Reports Center -->
+        <article role="button" tabindex="0"
+          aria-label="Reports Center"
+          onclick="openReportsSection()"
+          onkeydown="if(event.key==='Enter'||event.key===' ')openReportsSection()"
+          style="display:flex;align-items:center;gap:16px;width:100%;max-width:640px;margin:20px auto 0;padding:18px 22px;background:rgba(255,255,255,0.03);border:1px solid rgba(139,92,246,0.35);border-radius:16px;cursor:pointer;transition:all .25s ease;font-family:inherit;text-align:left;"
+          onmouseover="this.style.borderColor='rgba(139,92,246,0.75)';this.style.transform='translateY(-2px)'"
+          onmouseout="this.style.borderColor='rgba(139,92,246,0.35)';this.style.transform='none'">
+          <span style="width:46px;height:46px;border-radius:12px;display:flex;align-items:center;justify-content:center;background:linear-gradient(135deg,#8b5cf6,#7c3aed);color:#fff;font-size:1.1rem;box-shadow:0 6px 18px rgba(139,92,246,.45);flex-shrink:0;"><i class="fa-solid fa-chart-column"></i></span>
+          <span style="flex:1;min-width:0;">
+            <span style="display:block;font-size:1rem;font-weight:700;color:#eef1f8;">Reports Center</span>
+            <span style="display:block;font-size:.82rem;color:#9aa3b5;margin-top:2px;">Production output by date & time, PO-wise size summaries, gatepasses and MRN PDFs.</span>
+          </span>
+          <span style="color:#a78bfa;flex-shrink:0;"><i class="fa-solid fa-arrow-right"></i></span>
+        </article>
+
+        <!-- Tertiary Card — Plan Tracker -->
+        <article role="button" tabindex="0"
+          aria-label="Plan Tracker"
+          onclick="openPlanTracker()"
+          onkeydown="if(event.key==='Enter'||event.key===' ')openPlanTracker()"
+          style="display:flex;align-items:center;gap:16px;width:100%;max-width:640px;margin:14px auto 0;padding:18px 22px;background:rgba(255,255,255,0.03);border:1px solid rgba(245,158,11,0.35);border-radius:16px;cursor:pointer;transition:all .25s ease;font-family:inherit;text-align:left;"
+          onmouseover="this.style.borderColor='rgba(245,158,11,0.75)';this.style.transform='translateY(-2px)'"
+          onmouseout="this.style.borderColor='rgba(245,158,11,0.35)';this.style.transform='none'">
+          <span style="width:46px;height:46px;border-radius:12px;display:flex;align-items:center;justify-content:center;background:linear-gradient(135deg,#f59e0b,#d97706);color:#fff;font-size:1.1rem;box-shadow:0 6px 18px rgba(245,158,11,.45);flex-shrink:0;"><i class="fa-solid fa-route"></i></span>
+          <span style="flex:1;min-width:0;">
+            <span style="display:block;font-size:1rem;font-weight:700;color:#eef1f8;">Plan Tracker</span>
+            <span style="display:block;font-size:.82rem;color:#9aa3b5;margin-top:2px;">Enter a plan name to see its live stage across MRN, Stores dispatch, GFU output and gatepasses.</span>
+          </span>
+          <span style="color:#fbbf24;flex-shrink:0;"><i class="fa-solid fa-arrow-right"></i></span>
+        </article>
+
+      </section>
+
+    </main>
+
+    <!-- Footer -->
+    <footer class="dash-footer">
+      <span>&copy; 2026 Concord Footwear (Pvt) Ltd &mdash; SOLE MATRIX</span>
+      <span class="footer-divider">|</span>
+      <span class="desma-footer-tag">
+        <i class="fa-solid fa-gears"></i> Desma Department
+      </span>
+    </footer>
+
+  </div><!-- /dash-shell -->
+
+  <!-- Module Content Container (hidden by default) -->
+  <div class="module-overlay hidden" id="moduleOverlay">
+    <div class="module-container" id="moduleContainer">
+      <div class="module-header">
+        <button class="module-close-btn" onclick="closeModule()" aria-label="Close module">
+          <i class="fa-solid fa-xmark"></i>
+        </button>
+        <h2 class="module-header-title" id="moduleTitle">Module</h2>
+      </div>
+      <div class="module-body" id="moduleBody"></div>
+    </div>
+  </div>
+
+  <script src="assets/js/config.js"></script>
+  <script src="assets/js/gemini-client.js"></script>
+  <script src="assets/js/whatsapp.js?v=2"></script>
+  <!-- Reports Center (shared across departments; loads jsPDF on demand) -->
+  <script src="assets/js/reports.js"></script>
+  <!-- Plan Tracker (shared across departments) -->
+  <script src="assets/js/plan-tracker.js"></script>
+  <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+  <script src="assets/js/desma-in.js"></script>
+  <script src="assets/js/desma-return.js"></script>
+  <script src="assets/js/desma-dashboard.js"></script>
+  <!-- Solly AI Assistant (Gemini-powered, on every department dashboard) -->
+  <script src="assets/js/solly-ai.js"></script>
+</body>
+</html>
