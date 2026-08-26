@@ -1,0 +1,12 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "functions": {
+    "api/proxy.mjs": { "maxDuration": 60 }
+  },
+  "rewrites": [
+    { "source": "/api/openrouter", "destination": "/api/proxy?route=openrouter" },
+    { "source": "/api/groq", "destination": "/api/proxy?route=groq" },
+    { "source": "/api/gemini", "destination": "/api/proxy?route=gemini" },
+    { "source": "/health", "destination": "/api/proxy?route=health" }
+  ]
+}

@@ -53,29 +53,41 @@ any legacy direct calls. Key: `GROQ_API_KEY` in `server/config.local.json`.
 3. Set `SERVICE_ACCOUNT_FILE: "service-account.json"` in `config.local.json`
 4. Enable **Generative Language API** on the project
 
-## Deploying to Render.com
+## Vercel — serverless deployment (recommended for always-on)
 
-1. Push this repo to GitHub (done).
-2. Render dashboard → **New → Web Service** → connect `ConSole`.
-3. **Root Directory:** `server` · **Runtime:** Node ·
-   **Build Command:** `npm install` · **Start Command:** `npm start`
-4. **Health Check Path:** `/health`
-5. **Environment →** add:
+Vercel runs the proxy as a **serverless function** (`api/proxy.mjs`) —
+no idle sleeping, no local server needed.
+
+1. Vercel dashboard → **Add New → Project** → import `ConSole`.
+   Framework Preset: **Other** (auto-detected). No build settings needed.
+2. **Settings → Environment Variables →** add:
    - `OPENROUTER_API_KEY` (required — Solly chat + MRN vision)
    - `GROQ_API_KEY`, `GEMINI_API_KEY` (optional legacy routes)
-   - `ALLOWED_ORIGINS` = your dashboard's https origin (e.g. `https://sole-matrix.onrender.com`)
-   - `OPENROUTER_MODEL` (default `minimax/minimax-m3:free`)
-6. Deploy → note the service URL, e.g. `https://<name>.onrender.com`
-7. In `assets/js/config.js` switch the proxy URLs from localhost:
-   - `OPENROUTER_PROXY_URL: 'https://<name>.onrender.com/api/openrouter'`
-   - `GROQ_PROXY_URL` / `GEMINI_PROXY_URL` likewise (if kept)
-8. Commit + push that config change — done.
+   - `ALLOWED_ORIGINS` = your dashboard's https origin
+   - `PROXY_TOKEN` (optional shared secret)
+3. Deploy → note the URL, e.g. `https://<app>.vercel.app`
+4. In `assets/js/config.js` point the proxy URLs at it:
+   - `OPENROUTER_PROXY_URL: 'https://<app>.vercel.app/api/openrouter'`
+   - `GROQ_PROXY_URL: 'https://<app>.vercel.app/api/groq'`
+   - `GEMINI_PROXY_URL: 'https://<app>.vercel.app/api/gemini'`
+5. Commit + push — done.
 
-Notes: `PORT` is injected by Render automatically (the proxy reads
-`process.env.PORT` first). Zero npm dependencies, so the build is
-instant. Free Render instances sleep when idle; the first request
-wakes them (~30-60s). `process.loadEnvFile` is skipped safely when
-no `.env` exists — use Render Environment vars instead.
+Limits to know (Hobby plan): request bodies ≤ ~4.5 MB (compress large
+plan scans), max 60s execution per request, ~50 requests/day per free
+model on OpenRouter. The in-memory rate limiter from the local server
+is intentionally absent (serverless instances share no memory).
+
+## Render.com — alternative (long-running server)
+
+Prefer a traditional always-on server (e.g. for >4.5MB uploads)? The
+same logic ships as `server/gemini-proxy.mjs`:
+
+1. Render → **New → Web Service** → connect `ConSole`.
+2. **Root Directory:** `server` · **Build:** `npm install` · **Start:** `npm start`
+3. **Health Check Path:** `/health`
+4. Env vars: `OPENROUTER_API_KEY`, `GROQ_API_KEY`, `GEMINI_API_KEY`,
+   `ALLOWED_ORIGINS`, `PORT` is injected automatically.
+5. Point `config.js` at `https://<name>.onrender.com/api/...` as above.
 
 ## Security notes
 
