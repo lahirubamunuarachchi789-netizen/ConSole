@@ -97,9 +97,30 @@ function makeStubs() {
   const htmls = ['desma-dashboard.html', 'hr-dashboard.html', 'management-dashboard.html', 'outsole-dashboard.html', 'warehouse-dashboard.html'];
   htmls.forEach((f) => {
     const h = fs.readFileSync(ROOT + '/' + f, 'utf8');
-    const bumped = h.indexOf('?v=20260827') > -1 && h.indexOf('?v=20260826h') === -1;
-    check(f + ' cache buster bumped to 20260827', bumped);
+    const bumped = h.indexOf('?v=20260828') > -1 && h.indexOf('?v=20260827') === -1;
+    check(f + ' cache buster bumped to 20260828', bumped);
   });
+
+  /* ── 4. gate-less network-failure check: real mobile networks can
+        take 1-3 seconds to surface a TypeError. The original 250 ms
+        timing gate skipped the CF Worker fallback on production phones.
+        Verify there is NO `sinceMs < 250` (or similar) check in any of
+        the three files, and that `networkFailure` is what gates the
+        escalation to XHR / CF Worker. */
+  check('solly-ai has NO 250 ms timing gate', !/sinceMs.*<.*250/.test(solly) && !/\(Date\.now\(\) - \w+\) < 250/.test(solly));
+  check('gemini-client has NO 250 ms timing gate', !/sinceMs.*<.*250/.test(gemini) && !/\(Date\.now\(\) - \w+\) < 250/.test(gemini));
+  check('mrn.js has NO 250 ms timing gate', !/sinceMs.*<.*250/.test(mrn) && !/\(Date\.now\(\) - \w+\) < 250/.test(mrn));
+
+  check('solly-ai defines networkFailure detector', /function networkFailure\(/.test(solly));
+  check('gemini-client defines networkFailure detector', /function networkFailure\(/.test(gemini));
+  check('mrn.js defines networkFailure detector', /function networkFailure\(/.test(mrn));
+
+  check('solly-ai escalates to XHR on networkFailure', /if \(networkFailure\(instantErr\)\)/.test(solly));
+  check('solly-ai escalates XHR failure to CF Worker on networkFailure', /networkFailure\(xhrErr\)/.test(solly));
+  check('gemini-client escalates fetch->clean->XHR->CF all on networkFailure',
+    (gemini.match(/networkFailure\(/g) || []).length >= 4);
+  check('mrn.js escalates fetch->clean->XHR->CF all on networkFailure',
+    (mrn.match(/networkFailure\(/g) || []).length >= 4);
 
   console.log('CF WORKER FALLBACK TEST:', pass ? 'PASS ✓' : 'FAIL ✗');
   process.exitCode = pass ? 0 : 1;

@@ -931,11 +931,33 @@
     });
   }
 
-  /* true when fetch died with a TypeError almost immediately — the
-     signature of the Android engine-level rejection (a genuine network
-     failure always takes longer than a few ms). */
-  function instantTypeReject(e, sinceMs) {
-    return !!e && e.name === 'TypeError' && (Date.now() - sinceMs) < 250;
+  /* True when the transport died with a NETWORK-level failure.
+     We previously required the rejection to land within 250 ms
+     (the original Android instant-fetch signature), but real
+     carrier connections often take noticeably longer to fail, and
+     the same network-stack bug can fire from XMLHttpRequest after
+     a few seconds. We now accept ANY TypeError, AbortError from our
+     own XHR timeout, or a literal "XHR network error" message — if
+     fetch/XHR died before producing a response, the CF Worker edge
+     endpoint is the only path that uses a different network stack. */
+  function networkFailure(e) {
+    if (!e) return false;
+    if (e.name === 'TypeError') return true;            /* fetch + XHR both throw TypeError on network failure */
+    if (e.name === 'AbortError') return true;          /* our own XHR timeout */
+    const m = String(e && e.message || '').toLowerCase();
+    if (m.indexOf('xhr network error') > -1) return true;
+    if (m.indexOf('failed to fetch') > -1) return true;
+    if (m.indexOf('networkerror') > -1) return true;
+    return false;
+  }
+  /* Backwards-compat alias kept so older call sites (and tests) compile.
+     Now ignores timing — the original 250 ms gate is what caused the
+     CF Worker fallback to be skipped on real mobile networks where the
+     XHR TypeError takes longer to surface. */
+  function instantTypeReject(e, _sinceMs) { return networkFailure(e); }
+  /* Short label for the CF Worker URL used in console diagnostics. */
+  function cfWorkerName(u) {
+    try { return new URL(u).host; } catch (_) { return 'cloudflare-worker'; }
   }
 
   /* Classify a fetch failure — mobile networks fail in distinct ways and
@@ -1055,19 +1077,24 @@
             res = await fetchWithTimeout(proxy, opts, 65000);
           } catch (instantErr) {
             /* Android Chrome's network stack can reject even the cleanest
-               fetch() instantly (0.0s TypeError) on mobile data. XHR drives
-               a different native path in the same stack — retry the exact
-               same request over XMLHttpRequest before giving up. */
-            if (instantTypeReject(instantErr, t0)) {
-              console.warn('[SOLLY] instant fetch rejection (' + ((Date.now() - t0) / 1000).toFixed(1) + 's) - retrying same request over XMLHttpRequest');
+               fetch() at the network level on mobile data. The same bug
+               can also fire from XMLHttpRequest after a few seconds. The
+               250 ms timing gate we used to apply here is the reason the
+               CF Worker fallback was never reached on real production
+               phones. Now we escalate to XHR for ANY network failure,
+               and to the Cloudflare Worker for ANY network failure of XHR. */
+            if (networkFailure(instantErr)) {
+              console.warn('[SOLLY] fetch network failure (' + ((Date.now() - t0) / 1000).toFixed(1) + 's) - retrying same request over XMLHttpRequest');
               try {
                 res = await xhrPost(proxy, wire, opts.headers, 65000);
               } catch (xhrErr) {
-                /* XHR also rejected instantly -> last resort: Cloudflare Worker edge
-                   endpoint, which uses a completely different network stack and
-                   is not affected by the same Android fetch/XHR rejection. */
-                if (cfWorker && instantTypeReject(xhrErr, Date.now())) {
-                  console.warn('[SOLLY] XHR also rejected instantly - retrying over Cloudflare Worker');
+                /* XHR also failed at the network level -> last resort: Cloudflare
+                   Worker edge endpoint, which uses a completely different network
+                   stack and is NOT affected by the same Android fetch/XHR
+                   rejection. Trigger on ANY network failure (not just sub-250 ms)
+                   and pass the exact same body & headers through. */
+                if (cfWorker && networkFailure(xhrErr)) {
+                  console.warn('[SOLLY] XHR also failed - retrying over Cloudflare Worker (' + cfWorkerName(cfWorker) + ')');
                   res = await fetchWithTimeout(cfWorker, opts, 65000);
                 } else { throw xhrErr; }
               }
