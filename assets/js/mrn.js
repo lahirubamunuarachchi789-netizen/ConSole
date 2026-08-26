@@ -526,43 +526,55 @@ async function mrnAnalyse() {
     const orProxy = (window.CONFIG && CONFIG.OPENROUTER_PROXY_URL)
       || (window.CONFIG && CONFIG.GROQ_PROXY_URL ? CONFIG.GROQ_PROXY_URL.replace('/api/groq', '/api/openrouter') : '')
       || 'http://localhost:8787/api/openrouter';
-    const modelsToTry = ['minimax/minimax-m3:free', 'google/gemma-4-31b-it:free', 'dots-studio/dots-3-note-preview:free'];
+    const modelsToTry = ['minimax/minimax-m3:free', 'google/gemma-4-31b-it:free', 'dots-studio/dots-3-note-preview:free', 'google/gemma-4-26b-a4b-it:free', 'nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free'];
     let rawText = '';
     let lastError = null;
 
     const orHeaders = { 'Content-Type': 'application/json' };
     if (CONFIG.GEMINI_PROXY_TOKEN) orHeaders['x-proxy-token'] = CONFIG.GEMINI_PROXY_TOKEN;
 
-    for (const model of modelsToTry) {
-      try {
-        console.log('[MRN] Trying OpenRouter vision:', model);
-        const orBody = {
-          model: model,
-          messages: [{ role: 'user', content: contentParts }],
-          temperature: 0.1,
-          max_tokens: 4096,
-          stream: false,
-        };
-        const attempt = await fetchWithTimeout(orProxy, {
-          method: 'POST',
-          headers: orHeaders,
-          body: JSON.stringify({ model: model, payload: orBody }),
-        }, 180000);
+    /* Each model gets up to 2 passes: reasoning models can burn the whole
+       max_tokens budget on internal thinking (empty content, finish_reason
+       = "length"), so pass 2 doubles the token budget before we move on
+       to the next model. Every model has its own rate-limit bucket. */
+    outer: for (const model of modelsToTry) {
+      let maxTokens = 8192;
+      for (let pass = 0; pass < 2; pass++, maxTokens = Math.min(16384, maxTokens * 2)) {
+        try {
+          console.log('[MRN] Trying OpenRouter vision: ' + model + ' (pass ' + (pass + 1) + ', max_tokens ' + maxTokens + ')');
+          const orBody = {
+            model: model,
+            messages: [{ role: 'user', content: contentParts }],
+            temperature: 0.1,
+            max_tokens: maxTokens,
+            stream: false,
+          };
+          const attempt = await fetchWithTimeout(orProxy, {
+            method: 'POST',
+            headers: orHeaders,
+            body: JSON.stringify({ model: model, payload: orBody }),
+          }, 180000);
 
-        const d = await attempt.json().catch(() => ({}));
-        if (!attempt.ok) {
-          console.warn('[MRN] OpenRouter model ' + model + ' failed (' + attempt.status + '):', d && d.error && d.error.message);
-          lastError = (d && d.error && d.error.message) || ('HTTP ' + attempt.status);
-          continue;   /* try the next model */
+          const d = await attempt.json().catch(() => ({}));
+          if (!attempt.ok) {
+            console.warn('[MRN] OpenRouter model ' + model + ' failed (' + attempt.status + '):', d && d.error && d.error.message);
+            lastError = (d && d.error && d.error.message) || ('HTTP ' + attempt.status);
+            break;   /* model-level failure - try the next model */
+          }
+          const msg = d?.choices?.[0]?.message || {};
+          const fin = d?.choices?.[0]?.finish_reason || '';
+          rawText = String(msg.content || '').replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
+          console.log('[MRN] OpenRouter ' + model + ' -> finish:' + fin + ' contentLen:' + rawText.length);
+          if (rawText) break outer;
+          /* empty content + token exhaustion: retry same model with double budget */
+          if (fin === 'length' && pass === 0 && maxTokens < 16384) { maxTokens = 16384; continue; }
+          lastError = 'Empty response from ' + model + ' (finish: ' + (fin || 'unknown') + ')';
+          break;   /* try the next model */
+        } catch (err) {
+          console.warn('[MRN] OpenRouter model ' + model + ' threw:', err.message);
+          lastError = err.message;
+          break;
         }
-        rawText = String((d?.choices?.[0]?.message?.content || ''))
-          .replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
-        if (!rawText) { lastError = 'Empty response from ' + model; continue; }
-        console.log('[MRN] OpenRouter vision raw response:', rawText);
-        break;
-      } catch (err) {
-        console.warn('[MRN] OpenRouter model ' + model + ' threw:', err.message);
-        lastError = err.message;
       }
     }
 
@@ -579,18 +591,26 @@ async function mrnAnalyse() {
     
     const rows = parseGeminiResponse(rawText);
 
+    /* ── Automatic on-device OCR fallback when AI vision yields nothing ── */
     if (!rows || rows.length === 0) {
-      // Provide more helpful error message
-      let errorMsg = 'No production data could be extracted from this file. ';
-      
-      if (rawText.trim() === '') {
-        errorMsg += 'The AI returned an empty response. The image may be too unclear or corrupted.';
-      } else if (rawText.toLowerCase().includes('cannot') || rawText.toLowerCase().includes('unable')) {
-        errorMsg += 'The AI could not read the document clearly. Try a higher quality image or clearer scan.';
-      } else {
-        errorMsg += 'Please ensure the file contains a production plan table with PO numbers, models, colors, and size quantities.';
+      console.warn('[MRN] AI vision produced no rows - auto-falling back to on-device OCR...');
+      document.getElementById('aiStatusTitle').textContent = 'AI vision failed - trying on-device OCR...';
+      setAIStep(2, 'active');
+      try {
+        const ocr = await mrnRunOcrExtraction();
+        if (ocr.rows && ocr.rows.length) {
+          rows = ocr.rows;
+          mrnToast('AI vision could not read the plan - recovered with on-device OCR. Please verify the table before submitting.', 'error');
+        }
+      } catch (ocrErr) {
+        console.warn('[MRN] OCR fallback failed:', ocrErr.message);
       }
-      
+    }
+
+    if (!rows || rows.length === 0) {
+      let errorMsg = 'No production data could be extracted from this file. ';
+      if (lastError) errorMsg += 'Last AI error: ' + lastError + '. ';
+      errorMsg += 'Try a sharper, well-lit, straight photo showing the full plan table - or use "Try on-device OCR instead".';
       throw new Error(errorMsg);
     }
 
