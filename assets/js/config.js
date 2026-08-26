@@ -43,16 +43,25 @@ const CONFIG = {
   /* ─── OpenRouter AI (Solly chat) ───────────────────────────────
      High-context free models → Solly receives the ENTIRE sheet
      snapshot (no row caps, no trimming, no column dropping).
-     Key lives ONLY in the proxy's server config — never in the
-     browser.
+     Key lives ONLY in the worker / proxy server config — never in
+     the browser.
 
-     SECONDARY FALLBACK — Cloudflare Worker (mobile-resilient):
-       When the primary proxy (same-origin /api/openrouter) is
-       unreachable due to mobile carrier rejections or Android
-       instant fetch TypeErrors that also hit XHR, the CF Worker
-       at patient-resonance-dc61.lahirubamunuarachchi789.workers.dev
-       provides a completely independent edge endpoint that routes
-       the exact same request to OpenRouter.                      */
+     ══ TEMPORARY PRIMARY FLIP (2026-08-26) ══
+     The mobile browser is blocking the Vercel /api/openrouter
+     cross-origin request before any JS escalation logic can run
+     (XHR network error with no response). The Cloudflare Worker
+     at patient-resonance-dc61.lahirubamunuarachchi789.workers.dev
+     is now the PRIMARY directly-targeted endpoint. It has:
+       • permissive CORS (Access-Control-Allow-Origin: *)
+       • text/plain simple-request handling (no preflight)
+       • a completely independent edge network path
+     The Vercel proxy is kept as a secondary fallback if the Worker
+     is itself unavailable.
+
+     PRIMARY — Cloudflare Worker (mobile-resilient):
+       The CF Worker is hit FIRST because the Vercel /api/openrouter
+       route is being blocked by the mobile browser's network stack.
+     SECONDARY — Vercel OpenRouter proxy (same-origin):            */
   OPENROUTER_PROXY_URL: 'https://con-sole-three.vercel.app/api/openrouter',
   OPENROUTER_CLOUDFLARE_WORKER_URL: 'https://patient-resonance-dc61.lahirubamunuarachchi789.workers.dev',
   OPENROUTER_MODEL:     'minimax/minimax-m3:free',

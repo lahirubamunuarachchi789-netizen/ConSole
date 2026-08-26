@@ -931,6 +931,23 @@
     });
   }
 
+  /* fetch → XHR escalation against a given proxy URL. Used for the
+     Vercel /api/openrouter fallback path when the Cloudflare Worker
+     (primary) is unreachable. Returns a fetch-Response-shaped object
+     on success, or rethrows the last network failure if both layers
+     fail. */
+  async function fetchOrXhr(url, wire, opts, t0) {
+    try {
+      return await fetchWithTimeout(url, opts, 65000);
+    } catch (instantErr) {
+      if (networkFailure(instantErr)) {
+        console.warn('[SOLLY] ' + url + ' fetch network failure (' + ((Date.now() - t0) / 1000).toFixed(1) + 's) - retrying same request over XMLHttpRequest');
+        return await xhrPost(url, wire, opts.headers, 65000);
+      }
+      throw instantErr;
+    }
+  }
+
   /* True when the transport died with a NETWORK-level failure.
      We previously required the rejection to land within 250 ms
      (the original Android instant-fetch signature), but real
@@ -1000,29 +1017,46 @@
     return url;
   }
 
-  /* OpenRouter (OpenAI-compatible) via the backend proxy /api/openrouter.
+  /* OpenRouter (OpenAI-compatible) via the Cloudflare Worker edge proxy.
      High-context free models → Solly receives the ENTIRE sheet snapshot:
      no row caps, no truncation, no column dropping.
-     The API key lives ONLY in the server config — never in the browser.
+     The API key lives ONLY in the worker (or the Vercel proxy) — never
+     in the browser.
 
-     MOBILE RESILIENCE: on production the endpoint is same-origin, so CORS
-     is never the problem — "Failed to fetch" on phones is a dropped radio
-     or a stalled carrier connection. Strategy:
+     ══ TEMPORARY PRODUCTION FIX (2026-08-26) ══
+     Production mobile testing showed the Android Chrome network stack
+     blocking the Vercel /api/openrouter cross-origin request BEFORE any
+     JS escalation logic can run (XHR network error with no response).
+     To unblock phones immediately, the Cloudflare Worker at
+     patient-resonance-dc61.lahirubamunuarachchi789.workers.dev is now
+     the PRIMARY directly-targeted endpoint. The Worker has:
+       • permissive CORS (Access-Control-Allow-Origin: *)
+       • text/plain simple-request handling (no preflight)
+       • a completely independent edge network path
+     The Vercel proxy is kept as a secondary fallback if the Worker
+     itself is unavailable.
+
+     MOBILE RESILIENCE: on production the endpoint is cross-origin, so
+     CORS is the #1 risk — "Failed to fetch" on phones is a CORS or
+     dropped-radio failure. Strategy:
        • fail fast with a clear message when navigator.onLine is false
        • log payload size, endpoint, timing and failure class per attempt
        • retry the same model once after a QUICK network failure (<45s);
          long stalls move straight to the next model in the chain        */
   async function callOpenRouter(question, contextText) {
     /* ── Primary / secondary proxy URLs (in order) ──
-       1. PRIMARY: Vercel OpenRouter proxy (same-origin, no cache busting needed)
-       2. SECONDARY: Vercel fallback proxy if URL configured
-       3. TERTIARY: localhost fallback for dev
-       4. QUATERNARY: Cloudflare Worker — mobile-resilient edge endpoint
-          for instant-fetch rejections that also hurt XHR. */
+       1. PRIMARY: Cloudflare Worker edge (patient-resonance-dc61...) —
+          independent network path, permissive CORS, unblocks phones.
+       2. SECONDARY: Vercel OpenRouter proxy (same-origin fallback)
+       3. TERTIARY: Vercel Groq proxy if URL configured
+       4. QUATERNARY: localhost fallback for dev
+       The CF Worker is hit FIRST because the Vercel /api/openrouter
+       route is being blocked by the mobile browser's network stack
+       before any JS escalation logic can run. */
+    const cfWorker = (window.CONFIG && CONFIG.OPENROUTER_CLOUDFLARE_WORKER_URL) || '';
     const proxy = sameOriginUrl((window.CONFIG && CONFIG.OPENROUTER_PROXY_URL)
       || (window.CONFIG && CONFIG.GROQ_PROXY_URL ? CONFIG.GROQ_PROXY_URL.replace('/api/groq', '/api/openrouter') : '')
       || 'http://localhost:8787/api/openrouter');
-    const cfWorker = (window.CONFIG && CONFIG.OPENROUTER_CLOUDFLARE_WORKER_URL) || '';
     /* Model chain — on 404/429/503 fall through to the next free model. */
     const models = [];
     [(window.CONFIG && CONFIG.OPENROUTER_MODEL) || 'minimax/minimax-m3:free', 'google/gemma-4-31b-it:free', 'nvidia/nemotron-3.5-lightning:free']
@@ -1033,7 +1067,8 @@
     if (CONFIG.GEMINI_PROXY_TOKEN) headers['x-proxy-token'] = CONFIG.GEMINI_PROXY_TOKEN;
 
     console.log('[SOLLY] context: ' + contextText.length + ' chars (~' + Math.round(contextText.length / 1024) + ' KB)'
-      + ' | endpoint: ' + proxy
+      + ' | primary: ' + (cfWorker || proxy)
+      + ' | secondary: ' + (cfWorker ? proxy : '(none)')
       + ' | online: ' + navigator.onLine
       + ' | page origin: ' + (window.location ? location.origin : '?'));
     if (typeof navigator !== 'undefined' && navigator.onLine === false)
@@ -1073,32 +1108,23 @@
         try {
           console.log('[SOLLY] -> ' + model + ' | attempt ' + netAttempt + (netAttempt === 2 ? ' (clean fallback)' : '') + ' | payload ' + wire.length + ' bytes');
           let res;
-          try {
-            res = await fetchWithTimeout(proxy, opts, 65000);
-          } catch (instantErr) {
-            /* Android Chrome's network stack can reject even the cleanest
-               fetch() at the network level on mobile data. The same bug
-               can also fire from XMLHttpRequest after a few seconds. The
-               250 ms timing gate we used to apply here is the reason the
-               CF Worker fallback was never reached on real production
-               phones. Now we escalate to XHR for ANY network failure,
-               and to the Cloudflare Worker for ANY network failure of XHR. */
-            if (networkFailure(instantErr)) {
-              console.warn('[SOLLY] fetch network failure (' + ((Date.now() - t0) / 1000).toFixed(1) + 's) - retrying same request over XMLHttpRequest');
-              try {
-                res = await xhrPost(proxy, wire, opts.headers, 65000);
-              } catch (xhrErr) {
-                /* XHR also failed at the network level -> last resort: Cloudflare
-                   Worker edge endpoint, which uses a completely different network
-                   stack and is NOT affected by the same Android fetch/XHR
-                   rejection. Trigger on ANY network failure (not just sub-250 ms)
-                   and pass the exact same body & headers through. */
-                if (cfWorker && networkFailure(xhrErr)) {
-                  console.warn('[SOLLY] XHR also failed - retrying over Cloudflare Worker (' + cfWorkerName(cfWorker) + ')');
-                  res = await fetchWithTimeout(cfWorker, opts, 65000);
-                } else { throw xhrErr; }
-              }
-            } else { throw instantErr; }
+          /* PRIMARY: Cloudflare Worker edge endpoint. The mobile browser
+             is blocking the Vercel /api/openrouter cross-origin request
+             before any JS escalation logic can run, so the CF Worker is
+             the FIRST URL hit. Same model string and exact wire body
+             are passed through unchanged. */
+          if (cfWorker) {
+            try {
+              res = await fetchWithTimeout(cfWorker, opts, 65000);
+            } catch (cfErr) {
+              if (networkFailure(cfErr)) {
+                console.warn('[SOLLY] CF Worker fetch failed (' + ((Date.now() - t0) / 1000).toFixed(1) + 's) - falling back to Vercel proxy');
+                res = await fetchOrXhr(proxy, wire, opts, t0);
+              } else { throw cfErr; }
+            }
+          } else {
+            /* no CF Worker configured (dev mode) -> straight to Vercel */
+            res = await fetchOrXhr(proxy, wire, opts, t0);
           }
           const data = await res.json().catch(() => ({}));
           console.log('[SOLLY] <- ' + model + ' | HTTP ' + res.status + ' | ' + ((Date.now() - t0) / 1000).toFixed(1) + 's');
