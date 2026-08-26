@@ -572,13 +572,25 @@ async function mrnAnalyse() {
           } catch (instantErr) {
             /* instant rejection (some Android Chrome builds choke on rich
                option combos) -> retry with the plainest possible request */
-            if (Date.now() - tFetch < 250) {
+            if (instantTypeReject(instantErr, tFetch)) {
               console.warn('[MRN] instant fetch rejection - retrying with clean minimal fetch');
-              attempt = await fetchWithTimeout(orProxy, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ model: model, payload: orBody }),
-              }, 180000);
+              const tClean = Date.now();
+              try {
+                attempt = await fetchWithTimeout(orProxy, {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ model: model, payload: orBody }),
+                }, 180000);
+              } catch (cleanErr) {
+                /* the clean fetch was rejected instantly too -> last resort:
+                   send the exact same request over XMLHttpRequest, which
+                   Android Chrome routes through a different native
+                   network-stack path */
+                if (instantTypeReject(cleanErr, tClean)) {
+                  console.warn('[MRN] clean fetch also rejected instantly - retrying over XMLHttpRequest');
+                  attempt = await xhrPost(orProxy, JSON.stringify({ model: model, payload: orBody }), { 'Content-Type': 'application/json' }, 180000);
+                } else { throw cleanErr; }
+              }
             } else { throw instantErr; }
           }
 
@@ -1381,6 +1393,59 @@ async function fetchWithTimeout(url, options, timeoutMs = 15000) {
     }
     throw err;
   }
+}
+
+/* ───────────────────────────────────────────────────────────────────────────
+   XHR FALLBACK TRANSPORT — Android Chrome fetch-rejection bypass
+   ───────────────────────────────────────────────────────────────────────────
+   Some Android Chrome builds reject EVERY fetch() instantly (0.0s
+   "TypeError: Failed to fetch") even for clean minimal requests on mobile
+   data. XHR drives an older, separate native path in the Android network
+   stack and is NOT affected by that rejection. xhrPost() mirrors the slice
+   of the fetch Response API the callers use: { ok, status, json() }. */
+function xhrPost(url, body, headers, timeoutMs) {
+  return new Promise((resolve, reject) => {
+    let xhr;
+    try { xhr = new XMLHttpRequest(); } catch (e) { reject(e); return; }
+    let done = false;
+    let timer = null;
+    const finish = (fn, val) => {
+      if (done) return;
+      done = true;
+      if (timer) clearTimeout(timer);
+      fn(val);
+    };
+    timer = setTimeout(() => {
+      const err = new Error('XHR request timed out after ' + Math.round((timeoutMs || 65000) / 1000) + 's.');
+      err.name = 'AbortError';
+      try { xhr.abort(); } catch (_) { /* ignore */ }
+      finish(reject, err);
+    }, timeoutMs || 65000);
+    xhr.onload = () => {
+      finish(resolve, {
+        ok: xhr.status >= 200 && xhr.status < 300,
+        status: xhr.status,
+        json: () => {
+          try { return Promise.resolve(JSON.parse(xhr.responseText)); }
+          catch (_) { return Promise.resolve({}); }
+        },
+      });
+    };
+    xhr.onerror = () => finish(reject, new TypeError('XHR network error (Failed to fetch via XMLHttpRequest).'));
+    xhr.onabort = () => { const err = new Error('XHR request aborted.'); err.name = 'AbortError'; finish(reject, err); };
+    try {
+      xhr.open('POST', url, true);
+      if (headers) Object.keys(headers).forEach((k) => { try { xhr.setRequestHeader(k, headers[k]); } catch (_) { /* drop unsupported header */ } });
+      xhr.send(body);
+    } catch (e) { finish(reject, e); }
+  });
+}
+
+/* true when fetch died with a TypeError almost immediately — the signature
+   of the Android engine-level rejection (a genuine network failure always
+   takes longer than a few ms). */
+function instantTypeReject(e, sinceMs) {
+  return !!e && e.name === 'TypeError' && (Date.now() - sinceMs) < 250;
 }
 
 /* ═══════════════════════════════════════════════════════════════

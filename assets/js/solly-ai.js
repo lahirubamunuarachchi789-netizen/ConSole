@@ -886,6 +886,58 @@
     } finally { if (timer) clearTimeout(timer); }
   }
 
+  /* ── XMLHttpRequest fallback transport ─────────────────────────────
+     Some Android Chrome builds reject EVERY fetch() instantly (0.0s
+     "TypeError: Failed to fetch") even for clean minimal requests on
+     mobile data. XHR drives an older, separate native path in the
+     Android network stack and is NOT affected by that rejection.
+     Returns the slice of the fetch Response API callers use:
+     { ok, status, json() }. */
+  function xhrPost(url, body, headers, timeoutMs) {
+    return new Promise((resolve, reject) => {
+      let xhr;
+      try { xhr = new XMLHttpRequest(); } catch (e) { reject(e); return; }
+      let done = false;
+      let timer = null;
+      const finish = (fn, val) => {
+        if (done) return;
+        done = true;
+        if (timer) clearTimeout(timer);
+        fn(val);
+      };
+      timer = setTimeout(() => {
+        const err = new Error('XHR request timed out after ' + Math.round((timeoutMs || 65000) / 1000) + 's.');
+        err.name = 'AbortError';
+        try { xhr.abort(); } catch (_) { /* ignore */ }
+        finish(reject, err);
+      }, timeoutMs || 65000);
+      xhr.onload = () => {
+        finish(resolve, {
+          ok: xhr.status >= 200 && xhr.status < 300,
+          status: xhr.status,
+          json: () => {
+            try { return Promise.resolve(JSON.parse(xhr.responseText)); }
+            catch (_) { return Promise.resolve({}); }
+          },
+        });
+      };
+      xhr.onerror = () => finish(reject, new TypeError('XHR network error (Failed to fetch via XMLHttpRequest).'));
+      xhr.onabort = () => { const err = new Error('XHR request aborted.'); err.name = 'AbortError'; finish(reject, err); };
+      try {
+        xhr.open('POST', url, true);
+        if (headers) Object.keys(headers).forEach((k) => { try { xhr.setRequestHeader(k, headers[k]); } catch (_) { /* drop unsupported header */ } });
+        xhr.send(body);
+      } catch (e) { finish(reject, e); }
+    });
+  }
+
+  /* true when fetch died with a TypeError almost immediately — the
+     signature of the Android engine-level rejection (a genuine network
+     failure always takes longer than a few ms). */
+  function instantTypeReject(e, sinceMs) {
+    return !!e && e.name === 'TypeError' && (Date.now() - sinceMs) < 250;
+  }
+
   /* Classify a fetch failure — mobile networks fail in distinct ways and
      each needs a different message + strategy. */
   function describeFetchError(e, url) {
@@ -991,7 +1043,19 @@
         const opts = netAttempt === 1 ? fetchOpts : cleanOpts;
         try {
           console.log('[SOLLY] -> ' + model + ' | attempt ' + netAttempt + (netAttempt === 2 ? ' (clean fallback)' : '') + ' | payload ' + wire.length + ' bytes');
-          const res = await fetchWithTimeout(proxy, opts, 65000);
+          let res;
+          try {
+            res = await fetchWithTimeout(proxy, opts, 65000);
+          } catch (instantErr) {
+            /* Android Chrome's network stack can reject even the cleanest
+               fetch() instantly (0.0s TypeError) on mobile data. XHR drives
+               a different native path in the same stack — retry the exact
+               same request over XMLHttpRequest before giving up. */
+            if (instantTypeReject(instantErr, t0)) {
+              console.warn('[SOLLY] instant fetch rejection (' + ((Date.now() - t0) / 1000).toFixed(1) + 's) - retrying same request over XMLHttpRequest');
+              res = await xhrPost(proxy, wire, opts.headers, 65000);
+            } else { throw instantErr; }
+          }
           const data = await res.json().catch(() => ({}));
           console.log('[SOLLY] <- ' + model + ' | HTTP ' + res.status + ' | ' + ((Date.now() - t0) / 1000).toFixed(1) + 's');
           if (!res.ok) {

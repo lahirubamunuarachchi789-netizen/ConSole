@@ -35,13 +35,16 @@ try {
     cleanFallback: src.indexOf('cleanOpts') > -1 && src.indexOf('(clean fallback)') > -1,
     abortGuard: src.indexOf('try { controller = new AbortController(); }') > -1,
     noSameOriginMode: src.indexOf("mode: proxy.charAt") === -1,
+    instantTypeReject: src.indexOf('function instantTypeReject') > -1,
+    xhrFallback: src.indexOf('function xhrPost') > -1 && src.indexOf('retrying same request over XMLHttpRequest') > -1,
   };
   console.log('SOLLY SMOKE →', JSON.stringify(checks, null, 1));
   const pass = checks.evaluates && checks.SOLLY_LOADED && checks.publicApi &&
                checks.describeFetchError && checks.retryLogic && checks.offlineGuard &&
                checks.fetchTabTimeout && checks.sameOriginCollapse && checks.simpleRequest &&
                checks.fetchOptions && checks.nativeErrorToast && checks.originAbsolute &&
-               checks.cleanFallback && checks.abortGuard && checks.noSameOriginMode;
+               checks.cleanFallback && checks.abortGuard && checks.noSameOriginMode &&
+               checks.instantTypeReject && checks.xhrFallback;
   console.log('SOLLY SMOKE TEST:', pass ? 'PASS ✓' : 'FAIL ✗');
   process.exitCode = pass ? 0 : 1;
 } catch (e) {
