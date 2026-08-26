@@ -675,12 +675,27 @@
     if (!force && hit && Date.now() - hit.t < CACHE_TTL) return hit.data;
     const url = tab.cfg === '__MAIN__' ? CONFIG.SHEETBEST_URL : CONFIG[tab.cfg];
     if (!url) throw new Error('Missing URL for ' + tab.label);
-    const res = await fetch(url + (url.indexOf('?') > -1 ? '&' : '?') + '_=' + Date.now());
-    if (!res.ok) throw new Error(tab.label + ': HTTP ' + res.status);
-    const data = await res.json();
-    S.cache[tab.key] = { t: Date.now(), data: Array.isArray(data) ? data : [] };
-    S.cacheAt = Date.now();
-    return S.cache[tab.key].data;
+    const full = url + (url.indexOf('?') > -1 ? '&' : '?') + '_=' + Date.now();
+    /* mobile networks drop requests silently — 20s timeout + one retry */
+    let lastErr = null;
+    for (let attempt = 1; attempt <= 2; attempt++) {
+      const t0 = Date.now();
+      try {
+        const res = await fetchWithTimeout(full, { method: 'GET' }, 20000);
+        if (!res.ok) throw new Error(tab.label + ': HTTP ' + res.status);
+        const data = await res.json();
+        console.log('[SOLLY] sheet "' + tab.label + '": ' + (Array.isArray(data) ? data.length : '?') + ' rows in ' + ((Date.now() - t0) / 1000).toFixed(1) + 's');
+        S.cache[tab.key] = { t: Date.now(), data: Array.isArray(data) ? data : [] };
+        S.cacheAt = Date.now();
+        return S.cache[tab.key].data;
+      } catch (e) {
+        const d = describeFetchError(e, full);
+        console.warn('[SOLLY] sheet "' + tab.label + '" attempt ' + attempt + ' FAILED [' + d.kind + '] - ' + d.detail);
+        lastErr = new Error(tab.label + ': ' + (d.kind === 'TIMEOUT' ? 'timed out' : d.kind === 'OFFLINE' ? 'device offline' : 'network error'));
+        if (attempt === 1 && d.kind !== 'OFFLINE') { await new Promise((r) => setTimeout(r, 1200)); continue; }
+      }
+    }
+    throw lastErr;
   }
 
   async function fetchAll(force) {
@@ -866,11 +881,31 @@
     } finally { clearTimeout(timer); }
   }
 
+  /* Classify a fetch failure — mobile networks fail in distinct ways and
+     each needs a different message + strategy. */
+  function describeFetchError(e, url) {
+    const name = (e && e.name) || 'Error';
+    if (typeof navigator !== 'undefined' && navigator.onLine === false)
+      return { kind: 'OFFLINE', detail: 'Browser reports no internet connection (navigator.onLine = false).' };
+    if (name === 'AbortError')
+      return { kind: 'TIMEOUT', detail: 'Request aborted after the timeout - the connection stalled (typical on mobile networks).' };
+    if (name === 'TypeError')
+      return { kind: 'NETWORK', detail: 'Connection failed before/during the request (radio drop, DNS, TLS or carrier proxy). Target: ' + url };
+    return { kind: 'ERROR', detail: name + ': ' + ((e && e.message) || e) };
+  }
+
   /* OpenRouter (OpenAI-compatible) via the backend proxy /api/openrouter.
      High-context free models → Solly receives the ENTIRE sheet snapshot:
      no row caps, no truncation, no column dropping.
      The API key lives ONLY in the server config — never in the browser.
-     Response parsing: OpenAI JSON → data.choices[0].message.content */
+
+     MOBILE RESILIENCE: on production the endpoint is same-origin, so CORS
+     is never the problem — "Failed to fetch" on phones is a dropped radio
+     or a stalled carrier connection. Strategy:
+       • fail fast with a clear message when navigator.onLine is false
+       • log payload size, endpoint, timing and failure class per attempt
+       • retry the same model once after a QUICK network failure (<45s);
+         long stalls move straight to the next model in the chain        */
   async function callOpenRouter(question, contextText) {
     const proxy = (window.CONFIG && CONFIG.OPENROUTER_PROXY_URL)
       || (window.CONFIG && CONFIG.GROQ_PROXY_URL ? CONFIG.GROQ_PROXY_URL.replace('/api/groq', '/api/openrouter') : '')
@@ -881,30 +916,61 @@
       .forEach((m) => { if (m && models.indexOf(m) === -1) models.push(m); });
     const headers = { 'Content-Type': 'application/json' };
     if (CONFIG.GEMINI_PROXY_TOKEN) headers['x-proxy-token'] = CONFIG.GEMINI_PROXY_TOKEN;
-    console.log('[SOLLY] full sheet snapshot sent untruncated: ' + contextText.length + ' chars');
+
+    console.log('[SOLLY] context: ' + contextText.length + ' chars (~' + Math.round(contextText.length / 1024) + ' KB)'
+      + ' | endpoint: ' + proxy
+      + ' | online: ' + navigator.onLine
+      + ' | page origin: ' + (window.location ? location.origin : '?'));
+    if (typeof navigator !== 'undefined' && navigator.onLine === false)
+      throw new Error('Your device appears to be offline. Reconnect to the internet and try again.');
+
     let lastErr = null;
     for (const model of models) {
-      try {
-        const body = {
-          model: model,
-          messages: [
-            { role: 'system', content: systemPrompt() },
-            { role: 'user', content: 'LIVE SHEET DATA SNAPSHOT:\n\n' + contextText },
-            { role: 'user', content: question },
-          ],
-          temperature: 0.35,
-          stream: false,
-        };
-        const res = await fetchWithTimeout(proxy, { method: 'POST', headers: headers, body: JSON.stringify({ model: model, payload: body }) }, 120000);
-        const data = await res.json().catch(() => ({}));
-        if (!res.ok) {
-          lastErr = new Error((data && data.error && data.error.message) || ('OpenRouter HTTP ' + res.status + ' (' + model + ')'));
-          continue;   /* try the next model in the chain */
+      /* up to 2 attempts per model — quick network blips are retried,
+         long stalls (server-side timeouts) move to the next model */
+      for (let netAttempt = 1; netAttempt <= 2; netAttempt++) {
+        const t0 = Date.now();
+        try {
+          const body = {
+            model: model,
+            messages: [
+              { role: 'system', content: systemPrompt() },
+              { role: 'user', content: 'LIVE SHEET DATA SNAPSHOT:\n\n' + contextText },
+              { role: 'user', content: question },
+            ],
+            temperature: 0.35,
+            stream: false,
+          };
+          const wire = JSON.stringify({ model: model, payload: body });
+          console.log('[SOLLY] -> ' + model + ' | attempt ' + netAttempt + ' | payload ' + wire.length + ' bytes');
+          const res = await fetchWithTimeout(proxy, { method: 'POST', headers: headers, body: wire }, 90000);
+          const data = await res.json().catch(() => ({}));
+          console.log('[SOLLY] <- ' + model + ' | HTTP ' + res.status + ' | ' + ((Date.now() - t0) / 1000).toFixed(1) + 's');
+          if (!res.ok) {
+            lastErr = new Error((data && data.error && data.error.message) || ('OpenRouter HTTP ' + res.status + ' (' + model + ')'));
+            console.warn('[SOLLY] ' + model + ' rejected: ' + lastErr.message);
+            break;   /* server refused - retrying the same model will not help */
+          }
+          const text = String((data?.choices?.[0]?.message?.content || '')).trim();
+          if (!text) { lastErr = new Error('Empty response from ' + model + '.'); break; }
+          return text;
+        } catch (e) {
+          const d = describeFetchError(e, proxy);
+          const secs = ((Date.now() - t0) / 1000).toFixed(1);
+          console.error('[SOLLY] ' + model + ' attempt ' + netAttempt + ' FAILED [' + d.kind + '] after ' + secs + 's - ' + d.detail, e);
+          lastErr = new Error(
+            d.kind === 'OFFLINE' ? 'Your device is offline.' :
+            d.kind === 'TIMEOUT' ? 'The AI request timed out (' + model + '). Ask again to retry.' :
+            'Network error reaching the AI service (' + d.kind + '). Check your connection and try again.');
+          /* retry the same model only after a QUICK failure (radio blip);
+             a long stall means the server/model is struggling - move on */
+          if (netAttempt === 1 && d.kind !== 'OFFLINE' && (Date.now() - t0) < 45000) {
+            await new Promise((r) => setTimeout(r, 1500));
+            continue;
+          }
+          break;   /* next model */
         }
-        const text = String((data?.choices?.[0]?.message?.content || '')).trim();
-        if (!text) { lastErr = new Error('Empty response from ' + model + '.'); continue; }
-        return text;
-      } catch (e) { lastErr = e; }
+      }
     }
     throw (lastErr || new Error('OpenRouter is unavailable right now.'));
   }
@@ -1164,7 +1230,7 @@
 
     /* staggered status labels for a lively feel */
     const t1 = setTimeout(() => setTypingLabel(typing, 'Reading MRNs, gatepasses & scans…'), 1400);
-    const t2 = setTimeout(() => setTypingLabel(typing, 'Thinking with Gemini…'), 3200);
+    const t2 = setTimeout(() => setTypingLabel(typing, 'Thinking with OpenRouter…'), 3200);
 
     try {
       const stale = !S.cacheAt || (Date.now() - S.cacheAt > CACHE_TTL);
