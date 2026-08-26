@@ -26,11 +26,15 @@ try {
     describeFetchError: src.indexOf('function describeFetchError') > -1,
     retryLogic: src.indexOf('netAttempt') > -1 && src.indexOf('45000') > -1,
     offlineGuard: src.indexOf('navigator.onLine === false') > -1,
-    fetchTabTimeout: src.indexOf('fetchWithTimeout(full, { method: \'GET\' }, 20000)') > -1,
+    fetchTabTimeout: src.indexOf('fetchWithTimeout(full, { method: \'GET\'') > -1,
+    sameOriginCollapse: src.indexOf('function sameOriginUrl') > -1 && src.indexOf('sameOriginUrl((window.CONFIG') > -1,
+    simpleRequest: src.indexOf("text/plain;charset=UTF-8") > -1,
+    fetchOptions: src.indexOf("credentials: 'omit'") > -1 && src.indexOf("cache: 'no-store'") > -1,
   };
   console.log('SOLLY SMOKE →', JSON.stringify(checks, null, 1));
   const pass = checks.evaluates && checks.SOLLY_LOADED && checks.publicApi &&
-               checks.describeFetchError && checks.retryLogic && checks.offlineGuard && checks.fetchTabTimeout;
+               checks.describeFetchError && checks.retryLogic && checks.offlineGuard &&
+               checks.fetchTabTimeout && checks.sameOriginCollapse && checks.simpleRequest && checks.fetchOptions;
   console.log('SOLLY SMOKE TEST:', pass ? 'PASS ✓' : 'FAIL ✗');
   process.exitCode = pass ? 0 : 1;
 } catch (e) {

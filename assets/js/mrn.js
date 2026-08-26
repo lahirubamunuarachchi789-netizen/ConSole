@@ -523,14 +523,22 @@ async function mrnAnalyse() {
     const contentParts = [{ type: 'text', text: GEMINI_PROMPT }];
     imageDataUrls.forEach((u) => contentParts.push({ type: 'image_url', image_url: { url: u } }));
 
-    const orProxy = (window.CONFIG && CONFIG.OPENROUTER_PROXY_URL)
+    let orProxy = (window.CONFIG && CONFIG.OPENROUTER_PROXY_URL)
       || (window.CONFIG && CONFIG.GROQ_PROXY_URL ? CONFIG.GROQ_PROXY_URL.replace('/api/groq', '/api/openrouter') : '')
       || 'http://localhost:8787/api/openrouter';
+    /* collapse to a relative URL when the proxy shares this page's host —
+       keeps the request same-origin on phones (no CORS/preflight at all) */
+    try {
+      const u = new URL(orProxy, location.href);
+      if (u.origin === location.origin) orProxy = u.pathname + u.search;
+    } catch (_) { /* keep absolute */ }
     const modelsToTry = ['minimax/minimax-m3:free', 'google/gemma-4-31b-it:free', 'dots-studio/dots-3-note-preview:free', 'google/gemma-4-26b-a4b-it:free', 'nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free'];
     let rawText = '';
     let lastError = null;
 
-    const orHeaders = { 'Content-Type': 'application/json' };
+    /* text/plain = CORS "simple request" (no OPTIONS preflight); the proxy
+       parses the raw JSON body regardless of Content-Type. */
+    const orHeaders = { 'Content-Type': 'text/plain;charset=UTF-8' };
     if (CONFIG.GEMINI_PROXY_TOKEN) orHeaders['x-proxy-token'] = CONFIG.GEMINI_PROXY_TOKEN;
 
     /* Each model gets up to 2 passes: reasoning models can burn the whole
@@ -553,6 +561,9 @@ async function mrnAnalyse() {
             method: 'POST',
             headers: orHeaders,
             body: JSON.stringify({ model: model, payload: orBody }),
+            cache: 'no-store',
+            credentials: 'omit',
+            redirect: 'follow',
           }, 180000);
 
           const d = await attempt.json().catch(() => ({}));

@@ -681,7 +681,7 @@
     for (let attempt = 1; attempt <= 2; attempt++) {
       const t0 = Date.now();
       try {
-        const res = await fetchWithTimeout(full, { method: 'GET' }, 20000);
+        const res = await fetchWithTimeout(full, { method: 'GET', cache: 'no-store', credentials: 'omit', redirect: 'follow' }, 20000);
         if (!res.ok) throw new Error(tab.label + ': HTTP ' + res.status);
         const data = await res.json();
         console.log('[SOLLY] sheet "' + tab.label + '": ' + (Array.isArray(data) ? data.length : '?') + ' rows in ' + ((Date.now() - t0) / 1000).toFixed(1) + 's');
@@ -894,6 +894,18 @@
     return { kind: 'ERROR', detail: name + ': ' + ((e && e.message) || e) };
   }
 
+  /* Collapse a proxy URL to a RELATIVE path when it lives on the same host
+     that serves this page. The request then stays same-origin no matter how
+     the phone reached the site (production domain, preview URL, LAN IP,
+     in-app browser) — no CORS, no OPTIONS preflight, nothing to block. */
+  function sameOriginUrl(url) {
+    try {
+      const u = new URL(url, window.location ? location.href : 'https://invalid.local');
+      if (window.location && u.origin === location.origin) return u.pathname + u.search;
+    } catch (_) { /* keep the absolute URL */ }
+    return url;
+  }
+
   /* OpenRouter (OpenAI-compatible) via the backend proxy /api/openrouter.
      High-context free models → Solly receives the ENTIRE sheet snapshot:
      no row caps, no truncation, no column dropping.
@@ -907,14 +919,16 @@
        • retry the same model once after a QUICK network failure (<45s);
          long stalls move straight to the next model in the chain        */
   async function callOpenRouter(question, contextText) {
-    const proxy = (window.CONFIG && CONFIG.OPENROUTER_PROXY_URL)
+    const proxy = sameOriginUrl((window.CONFIG && CONFIG.OPENROUTER_PROXY_URL)
       || (window.CONFIG && CONFIG.GROQ_PROXY_URL ? CONFIG.GROQ_PROXY_URL.replace('/api/groq', '/api/openrouter') : '')
-      || 'http://localhost:8787/api/openrouter';
+      || 'http://localhost:8787/api/openrouter');
     /* Model chain — on 404/429/503 fall through to the next free model. */
     const models = [];
     [(window.CONFIG && CONFIG.OPENROUTER_MODEL) || 'minimax/minimax-m3:free', 'google/gemma-4-31b-it:free', 'nvidia/nemotron-3.5-lightning:free']
       .forEach((m) => { if (m && models.indexOf(m) === -1) models.push(m); });
-    const headers = { 'Content-Type': 'application/json' };
+    /* text/plain keeps this a CORS "simple request" — no OPTIONS preflight.
+       The proxy parses the raw JSON body regardless of Content-Type. */
+    const headers = { 'Content-Type': 'text/plain;charset=UTF-8' };
     if (CONFIG.GEMINI_PROXY_TOKEN) headers['x-proxy-token'] = CONFIG.GEMINI_PROXY_TOKEN;
 
     console.log('[SOLLY] context: ' + contextText.length + ' chars (~' + Math.round(contextText.length / 1024) + ' KB)'
@@ -943,7 +957,7 @@
           };
           const wire = JSON.stringify({ model: model, payload: body });
           console.log('[SOLLY] -> ' + model + ' | attempt ' + netAttempt + ' | payload ' + wire.length + ' bytes');
-          const res = await fetchWithTimeout(proxy, { method: 'POST', headers: headers, body: wire }, 90000);
+          const res = await fetchWithTimeout(proxy, { method: 'POST', headers: headers, body: wire, cache: 'no-store', credentials: 'omit', redirect: 'follow' }, 90000);
           const data = await res.json().catch(() => ({}));
           console.log('[SOLLY] <- ' + model + ' | HTTP ' + res.status + ' | ' + ((Date.now() - t0) / 1000).toFixed(1) + 's');
           if (!res.ok) {
