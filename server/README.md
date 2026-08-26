@@ -53,13 +53,29 @@ any legacy direct calls. Key: `GROQ_API_KEY` in `server/config.local.json`.
 3. Set `SERVICE_ACCOUNT_FILE: "service-account.json"` in `config.local.json`
 4. Enable **Generative Language API** on the project
 
-## Deploying for the team (beyond localhost)
+## Deploying to Render.com
 
-Any Node host works — e.g. Cloud Run:
-`gcloud run deploy gemini-proxy --source . --allow-unauthenticated`
-(set env vars instead of config.local.json in Cloud). Then point
-`GEMINI_PROXY_URL` in `assets/js/config.js` at the deployed URL and
-set `ALLOWED_ORIGINS` to your dashboard's origin.
+1. Push this repo to GitHub (done).
+2. Render dashboard → **New → Web Service** → connect `ConSole`.
+3. **Root Directory:** `server` · **Runtime:** Node ·
+   **Build Command:** `npm install` · **Start Command:** `npm start`
+4. **Health Check Path:** `/health`
+5. **Environment →** add:
+   - `OPENROUTER_API_KEY` (required — Solly chat + MRN vision)
+   - `GROQ_API_KEY`, `GEMINI_API_KEY` (optional legacy routes)
+   - `ALLOWED_ORIGINS` = your dashboard's https origin (e.g. `https://sole-matrix.onrender.com`)
+   - `OPENROUTER_MODEL` (default `minimax/minimax-m3:free`)
+6. Deploy → note the service URL, e.g. `https://<name>.onrender.com`
+7. In `assets/js/config.js` switch the proxy URLs from localhost:
+   - `OPENROUTER_PROXY_URL: 'https://<name>.onrender.com/api/openrouter'`
+   - `GROQ_PROXY_URL` / `GEMINI_PROXY_URL` likewise (if kept)
+8. Commit + push that config change — done.
+
+Notes: `PORT` is injected by Render automatically (the proxy reads
+`process.env.PORT` first). Zero npm dependencies, so the build is
+instant. Free Render instances sleep when idle; the first request
+wakes them (~30-60s). `process.loadEnvFile` is skipped safely when
+no `.env` exists — use Render Environment vars instead.
 
 ## Security notes
 

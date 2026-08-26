@@ -3,8 +3,9 @@
    SOLE MATRIX — AI Backend Proxy (zero dependencies, Node 18+)
    ───────────────────────────────────────────────────────────────────
    Keeps provider credentials OFF the client. The dashboard calls:
-     POST /api/groq     { "model": "openai/gpt-oss-120b", "payload": {...} }
-     POST /api/gemini   { "model": "gemini-...", "payload": {...} }
+     POST /api/openrouter { "model": "minimax/minimax-m3:free", ... }  → Solly chat + MRN vision
+     POST /api/groq       { "model": "openai/gpt-oss-120b", ... }      → MRN AI button / legacy
+     POST /api/gemini     { "model": "gemini-...", ... }               → warehouse vision / legacy
    Credential priority:
      1. SERVICE_ACCOUNT_FILE (service-account JSON key) → signed-JWT
         → OAuth2 access token (auto-refreshed)
@@ -190,12 +191,22 @@ const server = http.createServer(async (req, res) => {
 
 server.listen(PORT, () => {
   console.log('══ SOLE MATRIX — AI proxy ══');
-  console.log('  endpoints : http://localhost:' + PORT + '/api/gemini  (MRN/warehouse vision)');
-  console.log('              http://localhost:' + PORT + '/api/groq  (Solly chat)');
+  console.log('  endpoints : http://localhost:' + PORT + '/api/openrouter  (Solly chat + MRN vision)');
+  console.log('              http://localhost:' + PORT + '/api/groq        (MRN AI button / legacy)');
+  console.log('              http://localhost:' + PORT + '/api/gemini      (warehouse vision / legacy)');
   console.log('  gemini    : ' + (sa ? 'service-account (' + sa.email + ')' : API_KEY ? 'api-key [' + API_KEY.slice(0, 6) + '…' + API_KEY.slice(-4) + '] mode=' + (keyMode || AUTH_MODE) : '⚠ NOT CONFIGURED'));
   console.log('  groq      : ' + (GROQ_KEY ? 'configured (' + GROQ_MODEL + ')' : '⚠ NOT CONFIGURED'));
   console.log('  openrouter: ' + (OPENROUTER_KEY ? 'configured (' + OPENROUTER_MODEL + ')' : '⚠ NOT CONFIGURED'));
   console.log('  cors      : ' + ALLOWED_ORIGINS.join(', ') + ' | rate ' + RATE_PER_MIN + '/min | maxBody ' + Math.round(MAX_BODY / 1048576) + 'MB');
 });
+/* ── Graceful shutdown — Render sends SIGTERM on every deploy ────── */
+function shutdown(signal) {
+  console.log('[shutdown] ' + signal + ' received — closing server…');
+  server.close(() => process.exit(0));
+  setTimeout(() => process.exit(0), 3000).unref();
+}
+process.on('SIGTERM', () => shutdown('SIGTERM'));
+process.on('SIGINT',  () => shutdown('SIGINT'));
+
 server.on('error', (e) => { console.error('Cannot start proxy:', e.message); process.exit(1); });
 

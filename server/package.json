@@ -1,0 +1,15 @@
+{
+  "name": "sole-matrix-ai-proxy",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "SOLE MATRIX AI proxy - OpenRouter (Solly chat + MRN vision), Groq and Gemini routes. Zero dependencies.",
+  "main": "gemini-proxy.mjs",
+  "scripts": {
+    "start": "node gemini-proxy.mjs"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "license": "UNLICENSED"
+}
