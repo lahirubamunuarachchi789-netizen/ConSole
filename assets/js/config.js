@@ -28,7 +28,7 @@ const CONFIG = {
   GEMINI_API_KEY:   '',
   GEMINI_MODEL:     'gemini-3.6-flash',
   GEMINI_ENDPOINT:  'https://generativelanguage.googleapis.com/v1beta/models',
-  GEMINI_PROXY_URL: 'http://localhost:8787/api/gemini',
+  GEMINI_PROXY_URL: 'https://con-sole-three.vercel.app/api/gemini',
   GEMINI_PROXY_TOKEN: '',
 
   /* ─── Groq AI — Llama 3.3 70B (Solly chat) ─────────────────────
@@ -37,7 +37,7 @@ const CONFIG = {
      config (gitignored) — never in the browser.
      Note: Groq chat models are text-only, so MRN/warehouse document
      vision stays on the Gemini route above.                        */
-  GROQ_PROXY_URL: 'http://localhost:8787/api/groq',
+  GROQ_PROXY_URL:   'https://con-sole-three.vercel.app/api/groq',
   GROQ_MODEL:     'openai/gpt-oss-120b',
 
   /* ─── OpenRouter AI (Solly chat) ───────────────────────────────
@@ -45,7 +45,7 @@ const CONFIG = {
      snapshot (no row caps, no trimming, no column dropping).
      Key lives ONLY in the proxy's server config — never in the
      browser.                                                     */
-  OPENROUTER_PROXY_URL: 'http://localhost:8787/api/openrouter',
+  OPENROUTER_PROXY_URL: 'https://con-sole-three.vercel.app/api/openrouter',
   OPENROUTER_MODEL:     'minimax/minimax-m3:free',
 
   // ─── Cloudinary ────────────────────────────────────────────────
