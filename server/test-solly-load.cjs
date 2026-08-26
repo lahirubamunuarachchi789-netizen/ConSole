@@ -30,11 +30,15 @@ try {
     sameOriginCollapse: src.indexOf('function sameOriginUrl') > -1 && src.indexOf('sameOriginUrl((window.CONFIG') > -1,
     simpleRequest: src.indexOf("text/plain;charset=UTF-8") > -1,
     fetchOptions: src.indexOf("credentials: 'omit'") > -1 && src.indexOf("cache: 'no-store'") > -1,
+    nativeErrorToast: src.indexOf('function nativeErrorText') > -1 && src.indexOf('Native: ' + "' + native") > -1,
+    sameOriginMode: src.indexOf("mode: proxy.charAt(0) === '/' ? 'same-origin' : 'cors'") > -1,
+    abortGuard: src.indexOf('try { controller = new AbortController(); }') > -1,
   };
   console.log('SOLLY SMOKE →', JSON.stringify(checks, null, 1));
   const pass = checks.evaluates && checks.SOLLY_LOADED && checks.publicApi &&
                checks.describeFetchError && checks.retryLogic && checks.offlineGuard &&
-               checks.fetchTabTimeout && checks.sameOriginCollapse && checks.simpleRequest && checks.fetchOptions;
+               checks.fetchTabTimeout && checks.sameOriginCollapse && checks.simpleRequest &&
+               checks.fetchOptions && checks.nativeErrorToast && checks.sameOriginMode && checks.abortGuard;
   console.log('SOLLY SMOKE TEST:', pass ? 'PASS ✓' : 'FAIL ✗');
   process.exitCode = pass ? 0 : 1;
 } catch (e) {

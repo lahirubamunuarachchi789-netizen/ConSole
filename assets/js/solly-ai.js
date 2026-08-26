@@ -874,11 +874,16 @@
      a hung request spins forever. On timeout the model chain falls through
      to the next model. */
   async function fetchWithTimeout(url, options, timeoutMs) {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), timeoutMs || 120000);
+    /* AbortController is guarded: very old mobile engines throw on the
+       constructor — degrade to a plain fetch instead of crashing. */
+    let controller = null;
+    try { controller = new AbortController(); } catch (_) { controller = null; }
+    const timer = controller ? setTimeout(() => controller.abort(), timeoutMs || 120000) : null;
+    const opts = Object.assign({}, options);
+    if (controller) opts.signal = controller.signal;
     try {
-      return await fetch(url, Object.assign({}, options, { signal: controller.signal }));
-    } finally { clearTimeout(timer); }
+      return await fetch(url, opts);
+    } finally { if (timer) clearTimeout(timer); }
   }
 
   /* Classify a fetch failure — mobile networks fail in distinct ways and
@@ -892,6 +897,21 @@
     if (name === 'TypeError')
       return { kind: 'NETWORK', detail: 'Connection failed before/during the request (radio drop, DNS, TLS or carrier proxy). Target: ' + url };
     return { kind: 'ERROR', detail: name + ': ' + ((e && e.message) || e) };
+  }
+
+  /* Extract the NATIVE network error for UI display. Chrome populates the
+     fetch TypeError's .cause with the real net error (e.g.
+     "net::ERR_CONNECTION_RESET", "net::ERR_QUIC_PROTOCOL_ERROR",
+     "net::ERR_BLOCKED_BY_CLIENT") — that string pinpoints the exact mobile
+     failure instead of a generic message. */
+  function nativeErrorText(e) {
+    if (!e) return 'unknown';
+    let s = (e.name || 'Error') + ': ' + (e.message || String(e));
+    try {
+      const c = e.cause;
+      if (c) s += ' | cause: ' + (c.message || String(c));
+    } catch (_) { /* ignore */ }
+    return s;
   }
 
   /* Collapse a proxy URL to a RELATIVE path when it lives on the same host
@@ -940,24 +960,35 @@
 
     let lastErr = null;
     for (const model of models) {
+      const body = {
+        model: model,
+        messages: [
+          { role: 'system', content: systemPrompt() },
+          { role: 'user', content: 'LIVE SHEET DATA SNAPSHOT:\n\n' + contextText },
+          { role: 'user', content: question },
+        ],
+        temperature: 0.35,
+        stream: false,
+      };
+      const wire = JSON.stringify({ model: model, payload: body });
+      /* relative target (same host) -> same-origin mode: the browser applies
+         NO cors machinery at all; absolute targets keep standard cors mode */
+      const fetchOpts = {
+        method: 'POST',
+        headers: headers,
+        body: wire,
+        cache: 'no-store',
+        credentials: 'omit',
+        redirect: 'follow',
+        mode: proxy.charAt(0) === '/' ? 'same-origin' : 'cors',
+      };
       /* up to 2 attempts per model — quick network blips are retried,
          long stalls (server-side timeouts) move to the next model */
       for (let netAttempt = 1; netAttempt <= 2; netAttempt++) {
         const t0 = Date.now();
         try {
-          const body = {
-            model: model,
-            messages: [
-              { role: 'system', content: systemPrompt() },
-              { role: 'user', content: 'LIVE SHEET DATA SNAPSHOT:\n\n' + contextText },
-              { role: 'user', content: question },
-            ],
-            temperature: 0.35,
-            stream: false,
-          };
-          const wire = JSON.stringify({ model: model, payload: body });
-          console.log('[SOLLY] -> ' + model + ' | attempt ' + netAttempt + ' | payload ' + wire.length + ' bytes');
-          const res = await fetchWithTimeout(proxy, { method: 'POST', headers: headers, body: wire, cache: 'no-store', credentials: 'omit', redirect: 'follow' }, 90000);
+          console.log('[SOLLY] -> ' + model + ' | attempt ' + netAttempt + ' | payload ' + wire.length + ' bytes | mode ' + fetchOpts.mode);
+          const res = await fetchWithTimeout(proxy, fetchOpts, 65000);
           const data = await res.json().catch(() => ({}));
           console.log('[SOLLY] <- ' + model + ' | HTTP ' + res.status + ' | ' + ((Date.now() - t0) / 1000).toFixed(1) + 's');
           if (!res.ok) {
@@ -971,11 +1002,15 @@
         } catch (e) {
           const d = describeFetchError(e, proxy);
           const secs = ((Date.now() - t0) / 1000).toFixed(1);
+          const native = nativeErrorText(e);
           console.error('[SOLLY] ' + model + ' attempt ' + netAttempt + ' FAILED [' + d.kind + '] after ' + secs + 's - ' + d.detail, e);
+          /* the toast carries the NATIVE error (e.cause -> net::ERR_*) so the
+             exact mobile failure is visible without remote debugging */
           lastErr = new Error(
             d.kind === 'OFFLINE' ? 'Your device is offline.' :
-            d.kind === 'TIMEOUT' ? 'The AI request timed out (' + model + '). Ask again to retry.' :
-            'Network error reaching the AI service (' + d.kind + '). Check your connection and try again.');
+            d.kind === 'TIMEOUT' ? 'The AI request timed out (' + model + ').' :
+            'Network error reaching the AI service (' + d.kind + ').' +
+            ' [' + model + ' | ' + secs + 's | ' + wire.length + ' B] Native: ' + native);
           /* retry the same model only after a QUICK failure (radio blip);
              a long stall means the server/model is struggling - move on */
           if (netAttempt === 1 && d.kind !== 'OFFLINE' && (Date.now() - t0) < 45000) {
