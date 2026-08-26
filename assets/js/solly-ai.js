@@ -991,9 +991,16 @@
        • retry the same model once after a QUICK network failure (<45s);
          long stalls move straight to the next model in the chain        */
   async function callOpenRouter(question, contextText) {
+    /* ── Primary / secondary proxy URLs (in order) ──
+       1. PRIMARY: Vercel OpenRouter proxy (same-origin, no cache busting needed)
+       2. SECONDARY: Vercel fallback proxy if URL configured
+       3. TERTIARY: localhost fallback for dev
+       4. QUATERNARY: Cloudflare Worker — mobile-resilient edge endpoint
+          for instant-fetch rejections that also hurt XHR. */
     const proxy = sameOriginUrl((window.CONFIG && CONFIG.OPENROUTER_PROXY_URL)
       || (window.CONFIG && CONFIG.GROQ_PROXY_URL ? CONFIG.GROQ_PROXY_URL.replace('/api/groq', '/api/openrouter') : '')
       || 'http://localhost:8787/api/openrouter');
+    const cfWorker = (window.CONFIG && CONFIG.OPENROUTER_CLOUDFLARE_WORKER_URL) || '';
     /* Model chain — on 404/429/503 fall through to the next free model. */
     const models = [];
     [(window.CONFIG && CONFIG.OPENROUTER_MODEL) || 'minimax/minimax-m3:free', 'google/gemma-4-31b-it:free', 'nvidia/nemotron-3.5-lightning:free']
@@ -1053,7 +1060,17 @@
                same request over XMLHttpRequest before giving up. */
             if (instantTypeReject(instantErr, t0)) {
               console.warn('[SOLLY] instant fetch rejection (' + ((Date.now() - t0) / 1000).toFixed(1) + 's) - retrying same request over XMLHttpRequest');
-              res = await xhrPost(proxy, wire, opts.headers, 65000);
+              try {
+                res = await xhrPost(proxy, wire, opts.headers, 65000);
+              } catch (xhrErr) {
+                /* XHR also rejected instantly -> last resort: Cloudflare Worker edge
+                   endpoint, which uses a completely different network stack and
+                   is not affected by the same Android fetch/XHR rejection. */
+                if (cfWorker && instantTypeReject(xhrErr, Date.now())) {
+                  console.warn('[SOLLY] XHR also rejected instantly - retrying over Cloudflare Worker');
+                  res = await fetchWithTimeout(cfWorker, opts, 65000);
+                } else { throw xhrErr; }
+              }
             } else { throw instantErr; }
           }
           const data = await res.json().catch(() => ({}));

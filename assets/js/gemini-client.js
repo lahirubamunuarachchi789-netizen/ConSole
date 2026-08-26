@@ -97,6 +97,9 @@
   async function geminiRequest(model, payload) {
     const t = geminiTarget(model);
     const body = t.wrap(payload);
+    /* Cloudflare Worker edge endpoint — secondary fallback for mobile
+       instant-fetch rejections that also kill XHR on Android Chrome. */
+    const cfWorker = (window.CONFIG && CONFIG.OPENROUTER_CLOUDFLARE_WORKER_URL) || '';
     const t0 = Date.now();
     let res;
     try {
@@ -115,7 +118,18 @@
              routes through a different native network-stack path */
           if (instantTypeReject(e2, t1)) {
             console.warn('[GEMINI] clean fetch also rejected instantly - retrying over XMLHttpRequest');
-            res = await xhrPost(t.url, body, { 'Content-Type': 'application/json' }, 65000);
+            try {
+              res = await xhrPost(t.url, body, { 'Content-Type': 'application/json' }, 65000);
+            } catch (e3) {
+              /* XHR also rejected instantly -> final fallback: Cloudflare Worker
+                 edge endpoint, which uses a completely different network stack
+                 and is not affected by the same Android fetch/XHR rejection.
+                 Pass the exact same body & headers through. */
+              if (cfWorker && instantTypeReject(e3, Date.now())) {
+                console.warn('[GEMINI] XHR also rejected instantly - retrying over Cloudflare Worker');
+                res = await fetch(cfWorker, { method: 'POST', headers: t.headers, body: body, cache: 'no-store', credentials: 'omit', redirect: 'follow' });
+              } else { throw e3; }
+            }
           } else { throw e2; }
         }
       } else { throw e; }

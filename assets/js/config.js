@@ -44,8 +44,17 @@ const CONFIG = {
      High-context free models → Solly receives the ENTIRE sheet
      snapshot (no row caps, no trimming, no column dropping).
      Key lives ONLY in the proxy's server config — never in the
-     browser.                                                     */
+     browser.
+
+     SECONDARY FALLBACK — Cloudflare Worker (mobile-resilient):
+       When the primary proxy (same-origin /api/openrouter) is
+       unreachable due to mobile carrier rejections or Android
+       instant fetch TypeErrors that also hit XHR, the CF Worker
+       at patient-resonance-dc61.lahirubamunuarachchi789.workers.dev
+       provides a completely independent edge endpoint that routes
+       the exact same request to OpenRouter.                      */
   OPENROUTER_PROXY_URL: 'https://con-sole-three.vercel.app/api/openrouter',
+  OPENROUTER_CLOUDFLARE_WORKER_URL: 'https://patient-resonance-dc61.lahirubamunuarachchi789.workers.dev',
   OPENROUTER_MODEL:     'minimax/minimax-m3:free',
 
   // ─── Cloudinary ────────────────────────────────────────────────

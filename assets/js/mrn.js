@@ -526,6 +526,10 @@ async function mrnAnalyse() {
     let orProxy = (window.CONFIG && CONFIG.OPENROUTER_PROXY_URL)
       || (window.CONFIG && CONFIG.GROQ_PROXY_URL ? CONFIG.GROQ_PROXY_URL.replace('/api/groq', '/api/openrouter') : '')
       || 'http://localhost:8787/api/openrouter';
+    /* Cloudflare Worker edge endpoint — secondary fallback for mobile
+       instant-fetch rejections that also kill XHR on Android Chrome.
+       Set via CONFIG.OPENROUTER_CLOUDFLARE_WORKER_URL. */
+    const cfWorker = (window.CONFIG && CONFIG.OPENROUTER_CLOUDFLARE_WORKER_URL) || '';
     /* pin to the page's FULL origin (absolute URL) when the proxy shares
        this page's host — raw relative paths are rejected instantly by
        some Android Chrome builds */
@@ -588,7 +592,24 @@ async function mrnAnalyse() {
                    network-stack path */
                 if (instantTypeReject(cleanErr, tClean)) {
                   console.warn('[MRN] clean fetch also rejected instantly - retrying over XMLHttpRequest');
-                  attempt = await xhrPost(orProxy, JSON.stringify({ model: model, payload: orBody }), { 'Content-Type': 'application/json' }, 180000);
+                  const wire = JSON.stringify({ model: model, payload: orBody });
+                  try {
+                    attempt = await xhrPost(orProxy, wire, { 'Content-Type': 'application/json' }, 180000);
+                  } catch (xhrErr) {
+                    /* XHR also rejected instantly -> final fallback: Cloudflare
+                       Worker edge endpoint with the exact same body & headers */
+                    if (cfWorker && instantTypeReject(xhrErr, Date.now())) {
+                      console.warn('[MRN] XHR also rejected instantly - retrying over Cloudflare Worker');
+                      attempt = await fetchWithTimeout(cfWorker, {
+                        method: 'POST',
+                        headers: orHeaders,
+                        body: wire,
+                        cache: 'no-store',
+                        credentials: 'omit',
+                        redirect: 'follow',
+                      }, 180000);
+                    } else { throw xhrErr; }
+                  }
                 } else { throw cleanErr; }
               }
             } else { throw instantErr; }
