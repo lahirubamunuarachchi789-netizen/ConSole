@@ -102,12 +102,18 @@ function rateLimited(ip) {
 /* ── HTTP server ─────────────────────────────────────────────────── */
 const server = http.createServer(async (req, res) => {
   const origin = req.headers.origin || '';
-  const cors = ALLOWED_ORIGINS.includes('*') ? { 'Access-Control-Allow-Origin': '*' }
-    : (ALLOWED_ORIGINS.includes(origin) ? { 'Access-Control-Allow-Origin': origin, Vary: 'Origin' } : {});
+  /* CORS: reflect ANY Origin (mobile / preview-URL / LAN friendly); `*`
+     only when the request carries no Origin header. ALLOWED_ORIGINS CSV
+     = optional lockdown list. */
+  const locked = !ALLOWED_ORIGINS.includes('*') && ALLOWED_ORIGINS.length > 0;
+  const cors = (locked && !ALLOWED_ORIGINS.includes(origin))
+    ? {}
+    : (origin ? { 'Access-Control-Allow-Origin': origin, Vary: 'Origin' }
+              : { 'Access-Control-Allow-Origin': '*' });
   const send = (code, body) => { res.writeHead(code, { 'Content-Type': 'application/json', ...cors }); res.end(JSON.stringify(body)); };
 
   if (req.method === 'OPTIONS') {
-    res.writeHead(204, { ...cors, 'Access-Control-Allow-Methods': 'POST, OPTIONS', 'Access-Control-Allow-Headers': 'Content-Type, x-proxy-token', 'Access-Control-Max-Age': '86400' });
+    res.writeHead(204, { ...cors, 'Access-Control-Allow-Methods': 'POST, OPTIONS', 'Access-Control-Allow-Headers': 'Content-Type, x-proxy-token, Authorization', 'Access-Control-Max-Age': '86400' });
     return res.end();
   }
   if (req.method === 'GET' && (req.url === '/' || req.url === '/health')) {

@@ -855,6 +855,17 @@
     ].join('\n');
   }
 
+  /* fetch with a hard timeout — mobile networks stall easily; without this
+     a hung request spins forever. On timeout the model chain falls through
+     to the next model. */
+  async function fetchWithTimeout(url, options, timeoutMs) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs || 120000);
+    try {
+      return await fetch(url, Object.assign({}, options, { signal: controller.signal }));
+    } finally { clearTimeout(timer); }
+  }
+
   /* OpenRouter (OpenAI-compatible) via the backend proxy /api/openrouter.
      High-context free models → Solly receives the ENTIRE sheet snapshot:
      no row caps, no truncation, no column dropping.
@@ -884,7 +895,7 @@
           temperature: 0.35,
           stream: false,
         };
-        const res = await fetch(proxy, { method: 'POST', headers: headers, body: JSON.stringify({ model: model, payload: body }) });
+        const res = await fetchWithTimeout(proxy, { method: 'POST', headers: headers, body: JSON.stringify({ model: model, payload: body }) }, 120000);
         const data = await res.json().catch(() => ({}));
         if (!res.ok) {
           lastErr = new Error((data && data.error && data.error.message) || ('OpenRouter HTTP ' + res.status + ' (' + model + ')'));

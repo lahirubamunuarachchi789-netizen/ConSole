@@ -63,7 +63,7 @@ no idle sleeping, no local server needed.
 2. **Settings → Environment Variables →** add:
    - `OPENROUTER_API_KEY` (required — Solly chat + MRN vision)
    - `GROQ_API_KEY`, `GEMINI_API_KEY` (optional legacy routes)
-   - `ALLOWED_ORIGINS` = your dashboard's https origin
+   - `ALLOWED_ORIGINS` (optional — leave unset; CORS reflects any origin by default, so mobile + preview URLs work)
    - `PROXY_TOKEN` (optional shared secret)
 3. Deploy → note the URL, e.g. `https://<app>.vercel.app`
 4. In `assets/js/config.js` point the proxy URLs at it:

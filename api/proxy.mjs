@@ -53,8 +53,16 @@ const PROVIDERS = {
 
 export default async function handler(req, res) {
   const origin = req.headers.origin || '';
-  const cors = ALLOWED_ORIGINS.includes('*') ? { 'Access-Control-Allow-Origin': '*' }
-    : (ALLOWED_ORIGINS.includes(origin) ? { 'Access-Control-Allow-Origin': origin, Vary: 'Origin' } : {});
+  /* CORS: dynamically reflect ANY request Origin (with Vary: Origin) so the
+     API works from every origin - production domain, *.vercel.app preview
+     URLs, localhost, LAN IPs and mobile in-app browsers. `*` is only sent
+     when the request carries no Origin header. To lock the API down to
+     specific origins, set ALLOWED_ORIGINS to a comma-separated list. */
+  const locked = !ALLOWED_ORIGINS.includes('*') && ALLOWED_ORIGINS.length > 0;
+  const cors = (locked && !ALLOWED_ORIGINS.includes(origin))
+    ? {}
+    : (origin ? { 'Access-Control-Allow-Origin': origin, Vary: 'Origin' }
+              : { 'Access-Control-Allow-Origin': '*' });
   const send = (code, body) => {
     res.writeHead(code, { 'Content-Type': 'application/json', ...cors });
     res.end(JSON.stringify(body));
@@ -62,7 +70,7 @@ export default async function handler(req, res) {
 
   if (req.method === 'OPTIONS') {
     res.writeHead(204, { ...cors, 'Access-Control-Allow-Methods': 'POST, GET, OPTIONS',
-      'Access-Control-Allow-Headers': 'Content-Type, x-proxy-token', 'Access-Control-Max-Age': '86400' });
+      'Access-Control-Allow-Headers': 'Content-Type, x-proxy-token, Authorization', 'Access-Control-Max-Age': '86400' });
     return res.end();
   }
 

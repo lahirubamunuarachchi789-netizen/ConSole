@@ -43,10 +43,20 @@ async function call(method, url, bodyObj) {
 const h = await call('GET', '/api/proxy?route=health');
 console.log('health   =>', h.code, '|', h.json.openrouter, '|', h.json.groq);
 
-/* 2. OPTIONS preflight */
+/* 2. OPTIONS preflight — CORS must REFLECT the request Origin (mobile fix) */
 const p = mockRes();
 await handler(mockReq('OPTIONS', '/api/openrouter'), p);
-console.log('preflight =>', p.state.code, '| cors:', p.state.headers['Access-Control-Allow-Origin']);
+const pOrigin = p.state.headers['Access-Control-Allow-Origin'];
+console.log('preflight  =>', p.state.code, '| cors:', pOrigin, '| vary:', p.state.headers['Vary'], '| methods:', p.state.headers['Access-Control-Allow-Methods']);
+const corsReflectOk = pOrigin === 'https://test.example';
+
+/* 2b. preflight with NO Origin header → falls back to * */
+const pNoOrigin = mockReq('OPTIONS', '/api/openrouter');
+delete pNoOrigin.headers.origin;
+const p2 = mockRes();
+await handler(pNoOrigin, p2);
+console.log('preflight* =>', p2.state.code, '| cors:', p2.state.headers['Access-Control-Allow-Origin']);
+const corsStarOk = p2.state.headers['Access-Control-Allow-Origin'] === '*';
 
 /* 3. OpenRouter real call (Solly shape) */
 const o = await call('POST', '/api/proxy?route=openrouter', { model: 'minimax/minimax-m3:free',
@@ -61,3 +71,6 @@ console.log('unknown   =>', u.code, '|', (u.json?.error?.message || '').slice(0,
 const g = await call('POST', '/api/proxy?route=gemini', { model: 'gemini-3.6-flash',
   payload: { contents: [{ parts: [{ text: 'Reply with exactly: GEM VIA VERCEL' }] }] } });
 console.log('gemini    =>', g.code, '|', g.json?.candidates?.[0]?.content?.parts?.[0]?.text ?? JSON.stringify(g.json?.error || {}).slice(0, 150));
+
+console.log('CORS REFLECTION TESTS:', (corsReflectOk && corsStarOk) ? 'PASS ✓' : 'FAIL ✗');
+if (!(corsReflectOk && corsStarOk)) process.exitCode = 1;
