@@ -1,9 +1,10 @@
 /* Smoke-test solly-ai.js in Node: stub the browser globals, evaluate the
    whole IIFE and verify it initialises without throwing (widget build is
-   deferred because readyState stays 'loading'). Also verifies the new
-   clean single-proxy design in the source: solly talks straight to the
-   same-origin Vercel /api/openrouter endpoint — no Cloudflare Worker and
-   no XMLHttpRequest fallback stack. */
+   deferred because readyState stays 'loading'). Also verifies the clean
+   single-proxy design plus the mobile-resilience features: a warm-up GET,
+   a per-attempt timeout, a REAL network-failure retry inside the catch
+   (the old one was dead code — fetch() throws, it never resolves falsy),
+   and a clear message when every model fails at the connection level.  */
 const fs = require('fs');
 const src = fs.readFileSync('d:/LN Web/sole-matrix/assets/js/solly-ai.js', 'utf8');
 
@@ -38,7 +39,13 @@ try {
     noCloudflare: src.indexOf('OPENROUTER_CLOUDFLARE_WORKER_URL') === -1,
     noXhr: src.indexOf('function xhrPost') === -1 && src.indexOf('XMLHttpRequest') === -1,
     noXhrRetryLog: src.indexOf('retrying same request over XMLHttpRequest') === -1,
-    simpleProxyFetch: src.indexOf('fetch(proxy, {') > -1 || src.indexOf('let res = await fetch(proxy, {') > -1,
+    simpleProxyFetch: src.indexOf('fetchWithTimeout(proxy,') > -1,
+    /* mobile resilience: warm-up ping, per-attempt timeout, REAL retry */
+    warmUpPing: src.indexOf('warm-up ping') > -1,
+    perAttemptTimeout: src.indexOf('}, 45000)') > -1,
+    realRetry: /catch \(netErr\)[\s\S]{0,600}retrying with a bare POST/.test(src),
+    bareRetryIsSimpleRequest: /bare POST[\s\S]{0,400}text\/plain;charset=UTF-8/.test(src),
+    allModelsNetFailHint: src.indexOf('every model failed at the connection level') > -1,
   };
   console.log('SOLLY SMOKE →', JSON.stringify(checks, null, 1));
   const pass = checks.evaluates && checks.SOLLY_LOADED && checks.publicApi &&
@@ -46,7 +53,9 @@ try {
                checks.fetchTabTimeout && checks.sameOriginCollapse && checks.simpleRequest &&
                checks.fetchOptions && checks.nativeError && checks.originAbsolute &&
                checks.abortGuard && checks.noCloudflare && checks.noXhr &&
-               checks.noXhrRetryLog && checks.simpleProxyFetch;
+               checks.noXhrRetryLog && checks.simpleProxyFetch &&
+               checks.warmUpPing && checks.perAttemptTimeout && checks.realRetry &&
+               checks.bareRetryIsSimpleRequest && checks.allModelsNetFailHint;
   console.log('SOLLY SMOKE TEST:', pass ? 'PASS ✓' : 'FAIL ✗');
   process.exitCode = pass ? 0 : 1;
 } catch (e) {

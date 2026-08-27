@@ -958,6 +958,18 @@
       throw new Error('Your device appears to be offline. Reconnect and try again.');
 
     let lastErr = null;
+    let netFails = 0;
+
+    /* Connection warm-up: on mobile radios the FIRST request pays the full
+       DNS + TLS + radio-wake cost and is the one most likely to die with
+       "Failed to fetch". A tiny best-effort GET (capped at 2.5 s wait)
+       opens the socket so the real POSTs reuse a live connection. */
+    try {
+      const warm = fetchWithTimeout(proxy, { method: 'GET', cache: 'no-store', credentials: 'omit' }, 5000)
+        .then((r) => { console.log('[SOLLY] warm-up ping: HTTP ' + r.status); })
+        .catch(() => {});
+      await Promise.race([warm, new Promise((r) => setTimeout(r, 2500))]);
+    } catch (_) { /* warm-up is best-effort only */ }
     for (const model of models) {
       const body = {
         model: model,
@@ -973,22 +985,28 @@
       const t0 = Date.now();
       try {
         console.log('[SOLLY] -> ' + model + ' | payload ' + wire.length + ' bytes');
-        let res = await fetch(proxy, {
-          method: 'POST',
-          headers: headers,
-          body: wire,
-          cache: 'no-store',
-          credentials: 'omit',
-          redirect: 'follow',
-        });
-        if (!res) {
-          /* Single clean retry on a network-level rejection (strips every
-             optional field; some older Android engines reject rich combos). */
-          res = await fetch(proxy, {
+        let res;
+        try {
+          res = await fetchWithTimeout(proxy, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: headers,
             body: wire,
-          });
+            cache: 'no-store',
+            credentials: 'omit',
+            redirect: 'follow',
+          }, 45000);
+        } catch (netErr) {
+          /* REAL retry — the old one was dead code: fetch() never resolves
+             to a falsy value, it THROWS on network failure, so `if (!res)`
+             could never run. On mobile the first POST often dies to a
+             radio/QUIC drop while an immediate bare POST succeeds. */
+          console.warn('[SOLLY] ' + model + ' attempt 1 failed (' + nativeErrorText(netErr) + ') — retrying with a bare POST…');
+          await new Promise((r) => setTimeout(r, 700));
+          res = await fetchWithTimeout(proxy, {
+            method: 'POST',
+            headers: { 'Content-Type': 'text/plain;charset=UTF-8' },
+            body: wire,
+          }, 45000);
         }
         const data = await res.json().catch(() => ({}));
         console.log('[SOLLY] <- ' + model + ' | HTTP ' + res.status + ' | ' + ((Date.now() - t0) / 1000).toFixed(1) + 's');
@@ -1007,9 +1025,13 @@
           d.kind === 'OFFLINE' ? 'Your device is offline.' :
           d.kind === 'TIMEOUT' ? 'The AI request timed out (' + model + ').' :
           'Network error reaching the AI service (' + d.kind + '). Native: ' + native);
+        if (d.kind === 'NETWORK' || d.kind === 'TIMEOUT') netFails++;
         console.error('[SOLLY] ' + model + ' FAILED after ' + ((Date.now() - t0) / 1000).toFixed(1) + 's - ' + d.detail, e);
       }
     }
+    if (lastErr && netFails >= models.length)
+      lastErr = new Error(lastErr.message +
+        ' — every model failed at the connection level. Toggle Wi-Fi / mobile data (or switch networks), then tap 🔄 to retry.');
     throw (lastErr || new Error('OpenRouter is unavailable right now.'));
   }
 
