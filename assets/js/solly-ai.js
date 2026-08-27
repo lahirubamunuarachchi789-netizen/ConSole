@@ -1075,6 +1075,14 @@
       throw new Error('Your device appears to be offline. Reconnect to the internet and try again.');
 
     let lastErr = null;
+    /* Track the LAST network-level error (TypeError / AbortError / XHR network
+       error) we see so we can surface a clear "this is a connectivity problem,
+       not a model problem" message if every model in the chain trips on it.
+       Without this, the toast names the last model that was tried and the
+       user thinks that specific model is broken when in reality the device
+       could not reach any of our endpoints. */
+    let lastNetErr = null;
+    let netFailCount = 0;
     for (const model of models) {
       const body = {
         model: model,
@@ -1141,6 +1149,16 @@
           const secs = ((Date.now() - t0) / 1000).toFixed(1);
           const native = nativeErrorText(e);
           console.error('[SOLLY] ' + model + ' attempt ' + netAttempt + ' FAILED [' + d.kind + '] after ' + secs + 's - ' + d.detail, e);
+          /* record the network-level error so we can detect when EVERY model
+             in the chain tripped on connectivity (rather than a model error).
+             We treat OFFLINE / NETWORK / TIMEOUT all as connectivity errors —
+             the user's phone is having trouble reaching the AI service, and
+             re-trying the next model against the same blocked network will
+             just waste ~3 s. */
+          if (d.kind === 'OFFLINE' || d.kind === 'NETWORK' || d.kind === 'TIMEOUT') {
+            netFailCount++;
+            lastNetErr = e;
+          }
           /* the toast carries the NATIVE error (e.cause -> net::ERR_*) so the
              exact mobile failure is visible without remote debugging */
           lastErr = new Error(
@@ -1157,6 +1175,26 @@
           break;   /* next model */
         }
       }
+    }
+    /* If every model in the chain failed at the network level, the problem
+       is connectivity, not the model. Surface a clear message that points
+       the user at the actual cause instead of blaming the last model. The
+       CF Worker and the Vercel proxy use different network paths — when
+       BOTH are blocked, the device itself (radio / DNS / VPN / corporate
+       proxy) is usually the culprit. */
+    if (lastNetErr && netFailCount >= models.length) {
+      const d = describeFetchError(lastNetErr, proxy);
+      const native = nativeErrorText(lastNetErr);
+      throw new Error(
+        'Cannot reach the AI service from this device. ' +
+        (d.kind === 'OFFLINE'
+          ? 'Your browser reports no internet connection.'
+          : d.kind === 'TIMEOUT'
+            ? 'Both endpoints timed out (the request never returned).'
+            : 'Both the Cloudflare Worker and the Vercel proxy failed to respond.') +
+        ' Check Wi-Fi / mobile data, disable any VPN, then tap \uD83D\uDD04 to retry. ' +
+        '[' + models.length + ' models | Native: ' + native + ']'
+      );
     }
     throw (lastErr || new Error('OpenRouter is unavailable right now.'));
   }
