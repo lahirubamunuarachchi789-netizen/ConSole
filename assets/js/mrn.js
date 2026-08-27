@@ -567,61 +567,74 @@ async function mrnAnalyse() {
           };
           let attempt;
           const tFetch = Date.now();
-          try {
-            attempt = await fetchWithTimeout(orProxy, {
-              method: 'POST',
-              headers: orHeaders,
-              body: JSON.stringify({ model: model, payload: orBody }),
-              cache: 'no-store',
-              credentials: 'omit',
-              redirect: 'follow',
-            }, 180000);
-          } catch (instantErr) {
-            /* network-level failure on the primary fetch (no response came
-               back) -> retry with the plainest possible request, regardless
-               of how long it took. The 250 ms timing gate we used here is
-               the reason the CF Worker fallback was never reached on real
-               production phones — the XHR TypeError can take seconds to
-               surface on carrier networks. */
-            if (networkFailure(instantErr)) {
-              console.warn('[MRN] fetch network failure (' + ((Date.now() - tFetch) / 1000).toFixed(1) + 's) - retrying with clean minimal fetch');
-              const tClean = Date.now();
-              try {
-                attempt = await fetchWithTimeout(orProxy, {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({ model: model, payload: orBody }),
-                }, 180000);
-              } catch (cleanErr) {
-                /* the clean fetch also failed at the network level -> last
-                   resort: send the exact same request over XMLHttpRequest,
-                   which Android Chrome routes through a different native
-                   network-stack path. Trigger on ANY network failure. */
-                if (networkFailure(cleanErr)) {
-                  console.warn('[MRN] clean fetch also failed (' + ((Date.now() - tClean) / 1000).toFixed(1) + 's) - retrying over XMLHttpRequest');
-                  const wire = JSON.stringify({ model: model, payload: orBody });
-                  try {
-                    attempt = await xhrPost(orProxy, wire, { 'Content-Type': 'application/json' }, 180000);
-                  } catch (xhrErr) {
-                    /* XHR ALSO failed at the network level -> final fallback:
-                       Cloudflare Worker edge endpoint with the exact same
-                       body & headers. Trigger on ANY network failure (not
-                       just sub-250 ms). */
-                    if (cfWorker && networkFailure(xhrErr)) {
-                      console.warn('[MRN] XHR also failed - retrying over Cloudflare Worker (' + cfWorkerName(cfWorker) + ')');
-                      attempt = await fetchWithTimeout(cfWorker, {
-                        method: 'POST',
-                        headers: orHeaders,
-                        body: wire,
-                        cache: 'no-store',
-                        credentials: 'omit',
-                        redirect: 'follow',
-                      }, 180000);
-                    } else { throw xhrErr; }
-                  }
-                } else { throw cleanErr; }
-              }
-            } else { throw instantErr; }
+          /* PRIMARY: Cloudflare Worker edge endpoint directly.
+             Mobile browsers block the Vercel /api/openrouter cross-origin
+             request before any JS logic can run — the Worker has permissive
+             CORS and an independent network path, so it is hit FIRST. */
+          const wire = JSON.stringify({ model: model, payload: orBody });
+          if (cfWorker) {
+            try {
+              console.log('[MRN] Trying Cloudflare Worker (mobile-resilient): ' + cfWorkerName(cfWorker));
+              attempt = await fetchWithTimeout(cfWorker, {
+                method: 'POST',
+                headers: orHeaders,
+                body: wire,
+                cache: 'no-store',
+                credentials: 'omit',
+                redirect: 'follow',
+              }, 180000);
+            } catch (cfErr) {
+              /* Worker also failed at the network level → fall back through
+                 the Vercel proxy chain below. */
+              if (!networkFailure(cfErr)) throw cfErr;
+              console.warn('[MRN] Cloudflare Worker fetch failed (' + ((Date.now() - tFetch) / 1000).toFixed(1) + 's) - falling back to Vercel proxy');
+            }
+          }
+          if (!attempt) {
+            try {
+              attempt = await fetchWithTimeout(orProxy, {
+                method: 'POST',
+                headers: orHeaders,
+                body: wire,
+                cache: 'no-store',
+                credentials: 'omit',
+                redirect: 'follow',
+              }, 180000);
+            } catch (instantErr) {
+              /* network-level failure on the primary fetch (no response came
+                 back) -> retry with the plainest possible request, regardless
+                 of how long it took. The 250 ms timing gate we used here is
+                 the reason the CF Worker fallback was never reached on real
+                 production phones — the XHR TypeError can take seconds to
+                 surface on carrier networks. */
+              if (networkFailure(instantErr)) {
+                console.warn('[MRN] fetch network failure (' + ((Date.now() - tFetch) / 1000).toFixed(1) + 's) - retrying with clean minimal fetch');
+                const tClean = Date.now();
+                try {
+                  attempt = await fetchWithTimeout(orProxy, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: wire,
+                  }, 180000);
+                } catch (cleanErr) {
+                  /* the clean fetch also failed at the network level -> last
+                     resort: send the exact same request over XMLHttpRequest,
+                     which Android Chrome routes through a different native
+                     network-stack path. Trigger on ANY network failure. */
+                  if (networkFailure(cleanErr)) {
+                    console.warn('[MRN] clean fetch also failed (' + ((Date.now() - tClean) / 1000).toFixed(1) + 's) - retrying over XMLHttpRequest');
+                    try {
+                      attempt = await xhrPost(orProxy, wire, { 'Content-Type': 'application/json' }, 180000);
+                    } catch (xhrErr) {
+                      /* XHR also failed at the network level -> the Worker was
+                         already tried above and failed too; there is no
+                         further fallback. */
+                      throw xhrErr;
+                    }
+                  } else { throw cleanErr; }
+                }
+              } else { throw instantErr; }
+            }
           }
 
           const d = await attempt.json().catch(() => ({}));
