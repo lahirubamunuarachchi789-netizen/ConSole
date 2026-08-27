@@ -959,17 +959,19 @@
 
     let lastErr = null;
     let netFails = 0;
+    let pingState = 'pending';
 
     /* Connection warm-up: on mobile radios the FIRST request pays the full
        DNS + TLS + radio-wake cost and is the one most likely to die with
        "Failed to fetch". A tiny best-effort GET (capped at 2.5 s wait)
-       opens the socket so the real POSTs reuse a live connection. */
+       opens the socket so the real POSTs reuse a live connection.
+       Its outcome is recorded and surfaced in the final diagnostics. */
     try {
       const warm = fetchWithTimeout(proxy, { method: 'GET', cache: 'no-store', credentials: 'omit' }, 5000)
-        .then((r) => { console.log('[SOLLY] warm-up ping: HTTP ' + r.status); })
-        .catch(() => {});
+        .then((r) => { pingState = 'http ' + r.status; console.log('[SOLLY] warm-up ping: HTTP ' + r.status); })
+        .catch(() => { pingState = 'fail'; });
       await Promise.race([warm, new Promise((r) => setTimeout(r, 2500))]);
-    } catch (_) { /* warm-up is best-effort only */ }
+    } catch (_) { pingState = 'fail'; /* warm-up is best-effort only */ }
     for (const model of models) {
       const body = {
         model: model,
@@ -1031,7 +1033,9 @@
     }
     if (lastErr && netFails >= models.length)
       lastErr = new Error(lastErr.message +
-        ' — every model failed at the connection level. Toggle Wi-Fi / mobile data (or switch networks), then tap 🔄 to retry.');
+        ' — every model failed at the connection level. [page: ' + (window.location ? location.origin : '?') +
+        ' | endpoint: ' + proxy + ' | warm-up ping: ' + pingState + ']' +
+        ' Toggle Wi-Fi / mobile data (or switch networks), then tap 🔄 to retry.');
     throw (lastErr || new Error('OpenRouter is unavailable right now.'));
   }
 

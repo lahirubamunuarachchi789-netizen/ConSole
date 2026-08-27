@@ -46,6 +46,8 @@ try {
     realRetry: /catch \(netErr\)[\s\S]{0,600}retrying with a bare POST/.test(src),
     bareRetryIsSimpleRequest: /bare POST[\s\S]{0,400}text\/plain;charset=UTF-8/.test(src),
     allModelsNetFailHint: src.indexOf('every model failed at the connection level') > -1,
+    pageOriginDiag: src.indexOf("[page: '") > -1,
+    endpointDiag: src.indexOf("' | endpoint: '") > -1 && src.indexOf("' | warm-up ping: '") > -1,
   };
   console.log('SOLLY SMOKE →', JSON.stringify(checks, null, 1));
   const pass = checks.evaluates && checks.SOLLY_LOADED && checks.publicApi &&
@@ -55,7 +57,8 @@ try {
                checks.abortGuard && checks.noCloudflare && checks.noXhr &&
                checks.noXhrRetryLog && checks.simpleProxyFetch &&
                checks.warmUpPing && checks.perAttemptTimeout && checks.realRetry &&
-               checks.bareRetryIsSimpleRequest && checks.allModelsNetFailHint;
+               checks.bareRetryIsSimpleRequest && checks.allModelsNetFailHint &&
+               checks.pageOriginDiag && checks.endpointDiag;
   console.log('SOLLY SMOKE TEST:', pass ? 'PASS ✓' : 'FAIL ✗');
   process.exitCode = pass ? 0 : 1;
 } catch (e) {
