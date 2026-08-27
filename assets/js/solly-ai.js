@@ -940,7 +940,11 @@
   async function callOpenRouter(question, contextText) {
     const proxy = sameOriginUrl((window.CONFIG && CONFIG.OPENROUTER_PROXY_URL)
       || (window.CONFIG && CONFIG.GROQ_PROXY_URL ? CONFIG.GROQ_PROXY_URL.replace('/api/groq', '/api/openrouter') : '')
-      || 'http://localhost:8790/api/openrouter');
+      /* last-resort fallback: derive the proxy from the PAGE's own origin
+         (/api/openrouter is rewritten to the Vercel function). Never point
+         at http://localhost — on an https page that is mixed content and
+         dies instantly on every device. */
+      || (window.location ? location.origin + '/api/openrouter' : '/api/openrouter'));
     const models = [];
     [(window.CONFIG && CONFIG.OPENROUTER_MODEL) || 'minimax/minimax-m3:free', 'google/gemma-4-31b-it:free', 'nvidia/nemotron-3.5-lightning:free']
       .forEach((m) => { if (m && models.indexOf(m) === -1) models.push(m); });

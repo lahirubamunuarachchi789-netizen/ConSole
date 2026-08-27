@@ -3,6 +3,14 @@
   "functions": {
     "api/proxy.mjs": { "maxDuration": 60 }
   },
+  "headers": [
+    {
+      "source": "/assets/js/config.js",
+      "headers": [
+        { "key": "Cache-Control", "value": "public, max-age=0, must-revalidate" }
+      ]
+    }
+  ],
   "rewrites": [
     { "source": "/api/openrouter", "destination": "/api/proxy?route=openrouter" },
     { "source": "/api/groq", "destination": "/api/proxy?route=groq" },

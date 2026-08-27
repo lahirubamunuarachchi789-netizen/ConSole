@@ -525,7 +525,10 @@ async function mrnAnalyse() {
 
     let orProxy = (window.CONFIG && CONFIG.OPENROUTER_PROXY_URL)
       || (window.CONFIG && CONFIG.GROQ_PROXY_URL ? CONFIG.GROQ_PROXY_URL.replace('/api/groq', '/api/openrouter') : '')
-      || 'http://localhost:8787/api/openrouter';
+      /* last-resort fallback: derive from the PAGE's own origin — an
+         https page fetching http://localhost is mixed content and is
+         blocked instantly on every device. */
+      || (window.location ? location.origin + '/api/openrouter' : '/api/openrouter');
     /* pin to the page's FULL origin (absolute URL) when the proxy shares
        this page's host — raw relative paths are rejected instantly by
        some Android Chrome builds */
