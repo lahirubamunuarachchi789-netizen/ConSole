@@ -526,13 +526,6 @@ async function mrnAnalyse() {
     let orProxy = (window.CONFIG && CONFIG.OPENROUTER_PROXY_URL)
       || (window.CONFIG && CONFIG.GROQ_PROXY_URL ? CONFIG.GROQ_PROXY_URL.replace('/api/groq', '/api/openrouter') : '')
       || 'http://localhost:8787/api/openrouter';
-    /* Cloudflare Worker edge endpoint — secondary fallback. Triggered
-       on ANY network-level failure (TypeError, XHR network error,
-       AbortError from our XHR timeout) regardless of how long it
-       took to surface. Real mobile carriers can take seconds to fail;
-       the original 250 ms timing gate skipped this fallback entirely
-       on production phones. Set via CONFIG.OPENROUTER_CLOUDFLARE_WORKER_URL. */
-    const cfWorker = (window.CONFIG && CONFIG.OPENROUTER_CLOUDFLARE_WORKER_URL) || '';
     /* pin to the page's FULL origin (absolute URL) when the proxy shares
        this page's host — raw relative paths are rejected instantly by
        some Android Chrome builds */
@@ -567,84 +560,32 @@ async function mrnAnalyse() {
           };
           let attempt;
           const tFetch = Date.now();
-          /* PRIMARY: Cloudflare Worker edge endpoint directly.
-             Mobile browsers block the Vercel /api/openrouter cross-origin
-             request before any JS logic can run — the Worker has permissive
-             CORS and an independent network path, so it is hit FIRST. */
           const wire = JSON.stringify({ model: model, payload: orBody });
-          if (cfWorker) {
-            try {
-              console.log('[MRN] Trying Cloudflare Worker (mobile-resilient): ' + cfWorkerName(cfWorker));
-              attempt = await fetchWithTimeout(cfWorker, {
-                method: 'POST',
-                headers: orHeaders,
-                body: wire,
-                cache: 'no-store',
-                credentials: 'omit',
-                redirect: 'follow',
-              }, 180000);
-            } catch (cfErr) {
-              /* Worker also failed at the network level → fall back through
-                 the Vercel proxy chain below. */
-              if (!networkFailure(cfErr)) throw cfErr;
-              console.warn('[MRN] Cloudflare Worker fetch failed (' + ((Date.now() - tFetch) / 1000).toFixed(1) + 's) - falling back to Vercel proxy');
-            }
-            /* If the Worker replies with an HTTP ERROR (e.g. a 401/400 from a
-               Worker that is not actually running the OpenRouter relay), that
-               response is unusable — clear `attempt` so the Vercel proxy chain
-               below runs instead of this model being skipped. */
-            if (attempt && !attempt.ok) {
-              console.warn('[MRN] Cloudflare Worker HTTP ' + attempt.status + ' - falling back to Vercel proxy');
-              attempt = null;
-            }
+          /* Single direct POST to the Vercel /api/openrouter proxy.
+             The dashboard and this /api endpoint share the same Vercel
+             origin, so (after the same-origin pin above) this is a plain
+             same-origin request that works on every device — PC and
+             mobile — with no CORS/preflight and no extra fallback stack.
+             The OpenRouter key is read by api/proxy.mjs from the Vercel
+             environment, never from the browser. */
+          try {
+            attempt = await fetchWithTimeout(orProxy, {
+              method: 'POST',
+              headers: orHeaders,
+              body: wire,
+              cache: 'no-store',
+              credentials: 'omit',
+              redirect: 'follow',
+            }, 180000);
+          } catch (netErr) {
+            /* single clean retry on a network-level rejection (strips the
+               optional options that some older mobile engines reject). */
+            attempt = await fetchWithTimeout(orProxy, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: wire,
+            }, 180000);
           }
-          if (!attempt) {
-            try {
-              attempt = await fetchWithTimeout(orProxy, {
-                method: 'POST',
-                headers: orHeaders,
-                body: wire,
-                cache: 'no-store',
-                credentials: 'omit',
-                redirect: 'follow',
-              }, 180000);
-            } catch (instantErr) {
-              /* network-level failure on the primary fetch (no response came
-                 back) -> retry with the plainest possible request, regardless
-                 of how long it took. The 250 ms timing gate we used here is
-                 the reason the CF Worker fallback was never reached on real
-                 production phones — the XHR TypeError can take seconds to
-                 surface on carrier networks. */
-              if (networkFailure(instantErr)) {
-                console.warn('[MRN] fetch network failure (' + ((Date.now() - tFetch) / 1000).toFixed(1) + 's) - retrying with clean minimal fetch');
-                const tClean = Date.now();
-                try {
-                  attempt = await fetchWithTimeout(orProxy, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: wire,
-                  }, 180000);
-                } catch (cleanErr) {
-                  /* the clean fetch also failed at the network level -> last
-                     resort: send the exact same request over XMLHttpRequest,
-                     which Android Chrome routes through a different native
-                     network-stack path. Trigger on ANY network failure. */
-                  if (networkFailure(cleanErr)) {
-                    console.warn('[MRN] clean fetch also failed (' + ((Date.now() - tClean) / 1000).toFixed(1) + 's) - retrying over XMLHttpRequest');
-                    try {
-                      attempt = await xhrPost(orProxy, wire, { 'Content-Type': 'application/json' }, 180000);
-                    } catch (xhrErr) {
-                      /* XHR also failed at the network level -> the Worker was
-                         already tried above and failed too; there is no
-                         further fallback. */
-                      throw xhrErr;
-                    }
-                  } else { throw cleanErr; }
-                }
-              } else { throw instantErr; }
-            }
-          }
-
           const d = await attempt.json().catch(() => ({}));
           if (!attempt.ok) {
             console.warn('[MRN] OpenRouter model ' + model + ' failed (' + attempt.status + '):', d && d.error && d.error.message);
@@ -1446,81 +1387,6 @@ async function fetchWithTimeout(url, options, timeoutMs = 15000) {
   }
 }
 
-/* ───────────────────────────────────────────────────────────────────────────
-   XHR FALLBACK TRANSPORT — Android Chrome fetch-rejection bypass
-   ───────────────────────────────────────────────────────────────────────────
-   Some Android Chrome builds reject EVERY fetch() instantly (0.0s
-   "TypeError: Failed to fetch") even for clean minimal requests on mobile
-   data. XHR drives an older, separate native path in the Android network
-   stack and is NOT affected by that rejection. xhrPost() mirrors the slice
-   of the fetch Response API the callers use: { ok, status, json() }. */
-function xhrPost(url, body, headers, timeoutMs) {
-  return new Promise((resolve, reject) => {
-    let xhr;
-    try { xhr = new XMLHttpRequest(); } catch (e) { reject(e); return; }
-    let done = false;
-    let timer = null;
-    const finish = (fn, val) => {
-      if (done) return;
-      done = true;
-      if (timer) clearTimeout(timer);
-      fn(val);
-    };
-    timer = setTimeout(() => {
-      const err = new Error('XHR request timed out after ' + Math.round((timeoutMs || 65000) / 1000) + 's.');
-      err.name = 'AbortError';
-      try { xhr.abort(); } catch (_) { /* ignore */ }
-      finish(reject, err);
-    }, timeoutMs || 65000);
-    xhr.onload = () => {
-      finish(resolve, {
-        ok: xhr.status >= 200 && xhr.status < 300,
-        status: xhr.status,
-        json: () => {
-          try { return Promise.resolve(JSON.parse(xhr.responseText)); }
-          catch (_) { return Promise.resolve({}); }
-        },
-      });
-    };
-    xhr.onerror = () => finish(reject, new TypeError('XHR network error (Failed to fetch via XMLHttpRequest).'));
-    xhr.onabort = () => { const err = new Error('XHR request aborted.'); err.name = 'AbortError'; finish(reject, err); };
-    try {
-      xhr.open('POST', url, true);
-      if (headers) Object.keys(headers).forEach((k) => { try { xhr.setRequestHeader(k, headers[k]); } catch (_) { /* drop unsupported header */ } });
-      xhr.send(body);
-    } catch (e) { finish(reject, e); }
-  });
-}
-
-/* True when the transport died with a NETWORK-level failure.
-   We previously required the rejection to land within 250 ms (the
-   original Android instant-fetch signature), but real carrier
-   connections often take noticeably longer to fail, and the same
-   network-stack bug can fire from XMLHttpRequest after a few
-   seconds. We now accept ANY TypeError, AbortError from our own
-   XHR timeout, or a literal "XHR network error" message — if
-   fetch/XHR died before producing a response, the CF Worker edge
-   endpoint is the only path that uses a different network stack. */
-function networkFailure(e) {
-  if (!e) return false;
-  if (e.name === 'TypeError') return true;            /* fetch + XHR both throw TypeError on network failure */
-  if (e.name === 'AbortError') return true;          /* our own XHR timeout */
-  const m = String(e && e.message || '').toLowerCase();
-  if (m.indexOf('xhr network error') > -1) return true;
-  if (m.indexOf('failed to fetch') > -1) return true;
-  if (m.indexOf('networkerror') > -1) return true;
-  return false;
-}
-/* Backwards-compat alias kept so older call sites (and tests) compile.
-   Now ignores timing — the original 250 ms gate is what caused the
-   CF Worker fallback to be skipped on real mobile networks where the
-   XHR TypeError takes longer to surface. */
-function instantTypeReject(e, _sinceMs) { return networkFailure(e); }
-/* Short label for the CF Worker URL used in console diagnostics. */
-function cfWorkerName(u) {
-  try { return new URL(u).host; } catch (_) { return 'cloudflare-worker'; }
-}
-
 /* ═══════════════════════════════════════════════════════════════
    OCR ENGINE (Module 01) — Tesseract.js + pdf.js, fully on-device
    ───────────────────────────────────────────────────────────────
@@ -1821,3 +1687,4 @@ async function mrnAnalyseWithOCR() {
     if (msgEl) msgEl.textContent = (err.message || 'OCR failed unexpectedly.') + ' Tip: use "Try AI extraction instead" below.';
   }
 }
+

@@ -40,30 +40,16 @@ const CONFIG = {
   GROQ_PROXY_URL:   'https://con-sole-three.vercel.app/api/groq',
   GROQ_MODEL:     'openai/gpt-oss-120b',
 
-  /* ─── OpenRouter AI (Solly chat) ───────────────────────────────
+  /* ─── OpenRouter AI (Solly chat + MRN vision) ──────────────────
      High-context free models → Solly receives the ENTIRE sheet
      snapshot (no row caps, no trimming, no column dropping).
-     Key lives ONLY in the worker / proxy server config — never in
-     the browser.
+     Key lives ONLY in the Vercel environment (OPENROUTER_API_KEY)
+     and is read by api/proxy.mjs — never in the browser.
 
-     ══ TEMPORARY PRIMARY FLIP (2026-08-26) ══
-     The mobile browser is blocking the Vercel /api/openrouter
-     cross-origin request before any JS escalation logic can run
-     (XHR network error with no response). The Cloudflare Worker
-     at patient-resonance-dc61.lahirubamunuarachchi789.workers.dev
-     is now the PRIMARY directly-targeted endpoint. It has:
-       • permissive CORS (Access-Control-Allow-Origin: *)
-       • text/plain simple-request handling (no preflight)
-       • a completely independent edge network path
-     The Vercel proxy is kept as a secondary fallback if the Worker
-     is itself unavailable.
-
-     PRIMARY — Cloudflare Worker (mobile-resilient):
-       The CF Worker is hit FIRST because the Vercel /api/openrouter
-       route is being blocked by the mobile browser's network stack.
-     SECONDARY — Vercel OpenRouter proxy (same-origin):            */
+     The dashboard and this /api/openrouter endpoint are served from
+     the SAME Vercel origin, so the client calls it same-origin and it
+     works on every device (PC + mobile) with no CORS or preflight. */
   OPENROUTER_PROXY_URL: 'https://con-sole-three.vercel.app/api/openrouter',
-  OPENROUTER_CLOUDFLARE_WORKER_URL: 'https://patient-resonance-dc61.lahirubamunuarachchi789.workers.dev',
   OPENROUTER_MODEL:     'minimax/minimax-m3:free',
 
   // ─── Cloudinary ────────────────────────────────────────────────

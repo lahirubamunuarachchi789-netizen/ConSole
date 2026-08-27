@@ -886,97 +886,6 @@
     } finally { if (timer) clearTimeout(timer); }
   }
 
-  /* ── XMLHttpRequest fallback transport ─────────────────────────────
-     Some Android Chrome builds reject EVERY fetch() instantly (0.0s
-     "TypeError: Failed to fetch") even for clean minimal requests on
-     mobile data. XHR drives an older, separate native path in the
-     Android network stack and is NOT affected by that rejection.
-     Returns the slice of the fetch Response API callers use:
-     { ok, status, json() }. */
-  function xhrPost(url, body, headers, timeoutMs) {
-    return new Promise((resolve, reject) => {
-      let xhr;
-      try { xhr = new XMLHttpRequest(); } catch (e) { reject(e); return; }
-      let done = false;
-      let timer = null;
-      const finish = (fn, val) => {
-        if (done) return;
-        done = true;
-        if (timer) clearTimeout(timer);
-        fn(val);
-      };
-      timer = setTimeout(() => {
-        const err = new Error('XHR request timed out after ' + Math.round((timeoutMs || 65000) / 1000) + 's.');
-        err.name = 'AbortError';
-        try { xhr.abort(); } catch (_) { /* ignore */ }
-        finish(reject, err);
-      }, timeoutMs || 65000);
-      xhr.onload = () => {
-        finish(resolve, {
-          ok: xhr.status >= 200 && xhr.status < 300,
-          status: xhr.status,
-          json: () => {
-            try { return Promise.resolve(JSON.parse(xhr.responseText)); }
-            catch (_) { return Promise.resolve({}); }
-          },
-        });
-      };
-      xhr.onerror = () => finish(reject, new TypeError('XHR network error (Failed to fetch via XMLHttpRequest).'));
-      xhr.onabort = () => { const err = new Error('XHR request aborted.'); err.name = 'AbortError'; finish(reject, err); };
-      try {
-        xhr.open('POST', url, true);
-        if (headers) Object.keys(headers).forEach((k) => { try { xhr.setRequestHeader(k, headers[k]); } catch (_) { /* drop unsupported header */ } });
-        xhr.send(body);
-      } catch (e) { finish(reject, e); }
-    });
-  }
-
-  /* fetch → XHR escalation against a given proxy URL. Used for the
-     Vercel /api/openrouter fallback path when the Cloudflare Worker
-     (primary) is unreachable. Returns a fetch-Response-shaped object
-     on success, or rethrows the last network failure if both layers
-     fail. */
-  async function fetchOrXhr(url, wire, opts, t0) {
-    try {
-      return await fetchWithTimeout(url, opts, 65000);
-    } catch (instantErr) {
-      if (networkFailure(instantErr)) {
-        console.warn('[SOLLY] ' + url + ' fetch network failure (' + ((Date.now() - t0) / 1000).toFixed(1) + 's) - retrying same request over XMLHttpRequest');
-        return await xhrPost(url, wire, opts.headers, 65000);
-      }
-      throw instantErr;
-    }
-  }
-
-  /* True when the transport died with a NETWORK-level failure.
-     We previously required the rejection to land within 250 ms
-     (the original Android instant-fetch signature), but real
-     carrier connections often take noticeably longer to fail, and
-     the same network-stack bug can fire from XMLHttpRequest after
-     a few seconds. We now accept ANY TypeError, AbortError from our
-     own XHR timeout, or a literal "XHR network error" message — if
-     fetch/XHR died before producing a response, the CF Worker edge
-     endpoint is the only path that uses a different network stack. */
-  function networkFailure(e) {
-    if (!e) return false;
-    if (e.name === 'TypeError') return true;            /* fetch + XHR both throw TypeError on network failure */
-    if (e.name === 'AbortError') return true;          /* our own XHR timeout */
-    const m = String(e && e.message || '').toLowerCase();
-    if (m.indexOf('xhr network error') > -1) return true;
-    if (m.indexOf('failed to fetch') > -1) return true;
-    if (m.indexOf('networkerror') > -1) return true;
-    return false;
-  }
-  /* Backwards-compat alias kept so older call sites (and tests) compile.
-     Now ignores timing — the original 250 ms gate is what caused the
-     CF Worker fallback to be skipped on real mobile networks where the
-     XHR TypeError takes longer to surface. */
-  function instantTypeReject(e, _sinceMs) { return networkFailure(e); }
-  /* Short label for the CF Worker URL used in console diagnostics. */
-  function cfWorkerName(u) {
-    try { return new URL(u).host; } catch (_) { return 'cloudflare-worker'; }
-  }
-
   /* Classify a fetch failure — mobile networks fail in distinct ways and
      each needs a different message + strategy. */
   function describeFetchError(e, url) {
@@ -1017,72 +926,38 @@
     return url;
   }
 
-  /* OpenRouter (OpenAI-compatible) via the Cloudflare Worker edge proxy.
+  /* OpenRouter (OpenAI-compatible) via a SINGLE Vercel proxy endpoint.
+     The dashboard and the API live on the SAME origin
+     (https://con-sole-three.vercel.app), so sameOriginUrl() collapses
+     this to a plain same-origin POST that works on every device — PC
+     and mobile — with no CORS, no preflight, and no cross-origin
+     fallback stack. The OpenRouter key lives ONLY in the Vercel
+     environment (OPENROUTER_API_KEY); it is never sent to the browser.
+
      High-context free models → Solly receives the ENTIRE sheet snapshot:
-     no row caps, no truncation, no column dropping.
-     The API key lives ONLY in the worker (or the Vercel proxy) — never
-     in the browser.
-
-     ══ TEMPORARY PRODUCTION FIX (2026-08-26) ══
-     Production mobile testing showed the Android Chrome network stack
-     blocking the Vercel /api/openrouter cross-origin request BEFORE any
-     JS escalation logic can run (XHR network error with no response).
-     To unblock phones immediately, the Cloudflare Worker at
-     patient-resonance-dc61.lahirubamunuarachchi789.workers.dev is now
-     the PRIMARY directly-targeted endpoint. The Worker has:
-       • permissive CORS (Access-Control-Allow-Origin: *)
-       • text/plain simple-request handling (no preflight)
-       • a completely independent edge network path
-     The Vercel proxy is kept as a secondary fallback if the Worker
-     itself is unavailable.
-
-     MOBILE RESILIENCE: on production the endpoint is cross-origin, so
-     CORS is the #1 risk — "Failed to fetch" on phones is a CORS or
-     dropped-radio failure. Strategy:
-       • fail fast with a clear message when navigator.onLine is false
-       • log payload size, endpoint, timing and failure class per attempt
-       • retry the same model once after a QUICK network failure (<45s);
-         long stalls move straight to the next model in the chain        */
+     no row caps, no truncation, no column dropping. On a model-level
+     error (404/429/503) we fall through to the next free model.        */
   async function callOpenRouter(question, contextText) {
-    /* ── Primary / secondary proxy URLs (in order) ──
-       1. PRIMARY: Cloudflare Worker edge (patient-resonance-dc61...) —
-          independent network path, permissive CORS, unblocks phones.
-       2. SECONDARY: Vercel OpenRouter proxy (same-origin fallback)
-       3. TERTIARY: Vercel Groq proxy if URL configured
-       4. QUATERNARY: localhost fallback for dev
-       The CF Worker is hit FIRST because the Vercel /api/openrouter
-       route is being blocked by the mobile browser's network stack
-       before any JS escalation logic can run. */
-    const cfWorker = (window.CONFIG && CONFIG.OPENROUTER_CLOUDFLARE_WORKER_URL) || '';
     const proxy = sameOriginUrl((window.CONFIG && CONFIG.OPENROUTER_PROXY_URL)
       || (window.CONFIG && CONFIG.GROQ_PROXY_URL ? CONFIG.GROQ_PROXY_URL.replace('/api/groq', '/api/openrouter') : '')
-      || 'http://localhost:8787/api/openrouter');
-    /* Model chain — on 404/429/503 fall through to the next free model. */
+      || 'http://localhost:8790/api/openrouter');
     const models = [];
     [(window.CONFIG && CONFIG.OPENROUTER_MODEL) || 'minimax/minimax-m3:free', 'google/gemma-4-31b-it:free', 'nvidia/nemotron-3.5-lightning:free']
       .forEach((m) => { if (m && models.indexOf(m) === -1) models.push(m); });
-    /* text/plain keeps this a CORS "simple request" — no OPTIONS preflight.
+    /* text/plain keeps the fetch a CORS "simple request" (no OPTIONS
+       preflight) even if the page is ever served from a different origin.
        The proxy parses the raw JSON body regardless of Content-Type. */
     const headers = { 'Content-Type': 'text/plain;charset=UTF-8' };
     if (CONFIG.GEMINI_PROXY_TOKEN) headers['x-proxy-token'] = CONFIG.GEMINI_PROXY_TOKEN;
 
     console.log('[SOLLY] context: ' + contextText.length + ' chars (~' + Math.round(contextText.length / 1024) + ' KB)'
-      + ' | primary: ' + (cfWorker || proxy)
-      + ' | secondary: ' + (cfWorker ? proxy : '(none)')
+      + ' | endpoint: ' + proxy
       + ' | online: ' + navigator.onLine
-      + ' | page origin: ' + (window.location ? location.origin : '?'));
+      + ' | origin: ' + (window.location ? location.origin : '?'));
     if (typeof navigator !== 'undefined' && navigator.onLine === false)
-      throw new Error('Your device appears to be offline. Reconnect to the internet and try again.');
+      throw new Error('Your device appears to be offline. Reconnect and try again.');
 
     let lastErr = null;
-    /* Track the LAST network-level error (TypeError / AbortError / XHR network
-       error) we see so we can surface a clear "this is a connectivity problem,
-       not a model problem" message if every model in the chain trips on it.
-       Without this, the toast names the last model that was tried and the
-       user thinks that specific model is broken when in reality the device
-       could not reach any of our endpoints. */
-    let lastNetErr = null;
-    let netFailCount = 0;
     for (const model of models) {
       const body = {
         model: model,
@@ -1095,116 +970,45 @@
         stream: false,
       };
       const wire = JSON.stringify({ model: model, payload: body });
-      /* attempt 1: rich options. attempt 2: the PLAINEST possible request —
-         some Android Chrome builds reject rich fetch option combos instantly
-         (0.0s TypeError before any bytes are sent), so the fallback strips
-         every optional field and lets the browser use its default mode. */
-      const fetchOpts = {
-        method: 'POST',
-        headers: headers,
-        body: wire,
-        cache: 'no-store',
-        credentials: 'omit',
-        redirect: 'follow',
-      };
-      const cleanOpts = { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: wire };
-      /* up to 2 attempts per model — quick network blips are retried,
-         long stalls (server-side timeouts) move to the next model */
-      for (let netAttempt = 1; netAttempt <= 2; netAttempt++) {
-        const t0 = Date.now();
-        const opts = netAttempt === 1 ? fetchOpts : cleanOpts;
-        try {
-          console.log('[SOLLY] -> ' + model + ' | attempt ' + netAttempt + (netAttempt === 2 ? ' (clean fallback)' : '') + ' | payload ' + wire.length + ' bytes');
-          let res;
-          /* PRIMARY: Cloudflare Worker edge endpoint. The mobile browser
-             is blocking the Vercel /api/openrouter cross-origin request
-             before any JS escalation logic can run, so the CF Worker is
-             the FIRST URL hit. Same model string and exact wire body
-             are passed through unchanged. */
-          if (cfWorker) {
-            try {
-              res = await fetchWithTimeout(cfWorker, opts, 65000);
-              /* If the CF Worker replies with an HTTP ERROR (e.g. a 401/400
-                 from a Worker that is not actually running the OpenRouter
-                 relay), that response is unusable — fall back to the Vercel
-                 proxy (which returns a real answer) instead of giving up on
-                 this model. Without this, a broken CF endpoint would make
-                 Solly unusable even though the Vercel proxy works. */
-              if (res && !res.ok) {
-                console.warn('[SOLLY] CF Worker HTTP ' + res.status + ' - falling back to Vercel proxy');
-                res = await fetchOrXhr(proxy, wire, opts, t0);
-              }
-            } catch (cfErr) {
-              if (networkFailure(cfErr)) {
-                console.warn('[SOLLY] CF Worker fetch failed (' + ((Date.now() - t0) / 1000).toFixed(1) + 's) - falling back to Vercel proxy');
-                res = await fetchOrXhr(proxy, wire, opts, t0);
-              } else { throw cfErr; }
-            }
-          } else {
-            /* no CF Worker configured (dev mode) -> straight to Vercel */
-            res = await fetchOrXhr(proxy, wire, opts, t0);
-          }
-          const data = await res.json().catch(() => ({}));
-          console.log('[SOLLY] <- ' + model + ' | HTTP ' + res.status + ' | ' + ((Date.now() - t0) / 1000).toFixed(1) + 's');
-          if (!res.ok) {
-            lastErr = new Error((data && data.error && data.error.message) || ('OpenRouter HTTP ' + res.status + ' (' + model + ')'));
-            console.warn('[SOLLY] ' + model + ' rejected: ' + lastErr.message);
-            break;   /* server refused - retrying the same model will not help */
-          }
-          const text = String((data?.choices?.[0]?.message?.content || '')).trim();
-          if (!text) { lastErr = new Error('Empty response from ' + model + '.'); break; }
-          return text;
-        } catch (e) {
-          const d = describeFetchError(e, proxy);
-          const secs = ((Date.now() - t0) / 1000).toFixed(1);
-          const native = nativeErrorText(e);
-          console.error('[SOLLY] ' + model + ' attempt ' + netAttempt + ' FAILED [' + d.kind + '] after ' + secs + 's - ' + d.detail, e);
-          /* record the network-level error so we can detect when EVERY model
-             in the chain tripped on connectivity (rather than a model error).
-             We treat OFFLINE / NETWORK / TIMEOUT all as connectivity errors —
-             the user's phone is having trouble reaching the AI service, and
-             re-trying the next model against the same blocked network will
-             just waste ~3 s. */
-          if (d.kind === 'OFFLINE' || d.kind === 'NETWORK' || d.kind === 'TIMEOUT') {
-            netFailCount++;
-            lastNetErr = e;
-          }
-          /* the toast carries the NATIVE error (e.cause -> net::ERR_*) so the
-             exact mobile failure is visible without remote debugging */
-          lastErr = new Error(
-            d.kind === 'OFFLINE' ? 'Your device is offline.' :
-            d.kind === 'TIMEOUT' ? 'The AI request timed out (' + model + ').' :
-            'Network error reaching the AI service (' + d.kind + ').' +
-            ' [' + model + ' | ' + secs + 's | ' + wire.length + ' B] Native: ' + native);
-          /* retry the same model only after a QUICK failure (radio blip);
-             a long stall means the server/model is struggling - move on */
-          if (netAttempt === 1 && d.kind !== 'OFFLINE' && (Date.now() - t0) < 45000) {
-            await new Promise((r) => setTimeout(r, 1500));
-            continue;
-          }
-          break;   /* next model */
+      const t0 = Date.now();
+      try {
+        console.log('[SOLLY] -> ' + model + ' | payload ' + wire.length + ' bytes');
+        let res = await fetch(proxy, {
+          method: 'POST',
+          headers: headers,
+          body: wire,
+          cache: 'no-store',
+          credentials: 'omit',
+          redirect: 'follow',
+        });
+        if (!res) {
+          /* Single clean retry on a network-level rejection (strips every
+             optional field; some older Android engines reject rich combos). */
+          res = await fetch(proxy, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: wire,
+          });
         }
+        const data = await res.json().catch(() => ({}));
+        console.log('[SOLLY] <- ' + model + ' | HTTP ' + res.status + ' | ' + ((Date.now() - t0) / 1000).toFixed(1) + 's');
+        if (!res.ok) {
+          lastErr = new Error((data && data.error && data.error.message) || ('OpenRouter HTTP ' + res.status + ' (' + model + ')'));
+          console.warn('[SOLLY] ' + model + ' rejected: ' + lastErr.message);
+          continue;   /* try the next free model */
+        }
+        const text = String((data?.choices?.[0]?.message?.content || '')).trim();
+        if (!text) { lastErr = new Error('Empty response from ' + model + '.'); continue; }
+        return text;
+      } catch (e) {
+        const d = describeFetchError(e, proxy);
+        const native = nativeErrorText(e);
+        lastErr = new Error(
+          d.kind === 'OFFLINE' ? 'Your device is offline.' :
+          d.kind === 'TIMEOUT' ? 'The AI request timed out (' + model + ').' :
+          'Network error reaching the AI service (' + d.kind + '). Native: ' + native);
+        console.error('[SOLLY] ' + model + ' FAILED after ' + ((Date.now() - t0) / 1000).toFixed(1) + 's - ' + d.detail, e);
       }
-    }
-    /* If every model in the chain failed at the network level, the problem
-       is connectivity, not the model. Surface a clear message that points
-       the user at the actual cause instead of blaming the last model. The
-       CF Worker and the Vercel proxy use different network paths — when
-       BOTH are blocked, the device itself (radio / DNS / VPN / corporate
-       proxy) is usually the culprit. */
-    if (lastNetErr && netFailCount >= models.length) {
-      const d = describeFetchError(lastNetErr, proxy);
-      const native = nativeErrorText(lastNetErr);
-      throw new Error(
-        'Cannot reach the AI service from this device. ' +
-        (d.kind === 'OFFLINE'
-          ? 'Your browser reports no internet connection.'
-          : d.kind === 'TIMEOUT'
-            ? 'Both endpoints timed out (the request never returned).'
-            : 'Both the Cloudflare Worker and the Vercel proxy failed to respond.') +
-        ' Check Wi-Fi / mobile data, disable any VPN, then tap \uD83D\uDD04 to retry. ' +
-        '[' + models.length + ' models | Native: ' + native + ']'
-      );
     }
     throw (lastErr || new Error('OpenRouter is unavailable right now.'));
   }

@@ -1,7 +1,9 @@
 /* Smoke-test solly-ai.js in Node: stub the browser globals, evaluate the
    whole IIFE and verify it initialises without throwing (widget build is
    deferred because readyState stays 'loading'). Also verifies the new
-   mobile-diagnostics helpers are present in the source. */
+   clean single-proxy design in the source: solly talks straight to the
+   same-origin Vercel /api/openrouter endpoint — no Cloudflare Worker and
+   no XMLHttpRequest fallback stack. */
 const fs = require('fs');
 const src = fs.readFileSync('d:/LN Web/sole-matrix/assets/js/solly-ai.js', 'utf8');
 
@@ -23,28 +25,28 @@ try {
     evaluates: true,
     SOLLY_LOADED: global.window.SOLLY_LOADED === true,
     publicApi: !!(global.window.SollyAI && global.window.SollyAI.ask),
-    describeFetchError: src.indexOf('function describeFetchError') > -1,
-    retryLogic: src.indexOf('netAttempt') > -1 && src.indexOf('45000') > -1,
+    describesError: src.indexOf('function describeFetchError') > -1,
     offlineGuard: src.indexOf('navigator.onLine === false') > -1,
     fetchTabTimeout: src.indexOf('fetchWithTimeout(full, { method: \'GET\'') > -1,
     sameOriginCollapse: src.indexOf('function sameOriginUrl') > -1 && src.indexOf('sameOriginUrl((window.CONFIG') > -1,
     simpleRequest: src.indexOf("text/plain;charset=UTF-8") > -1,
     fetchOptions: src.indexOf("credentials: 'omit'") > -1 && src.indexOf("cache: 'no-store'") > -1,
-    nativeErrorToast: src.indexOf('function nativeErrorText') > -1 && src.indexOf('Native: ' + "' + native") > -1,
+    nativeError: src.indexOf('function nativeErrorText') > -1,
     originAbsolute: src.indexOf('u.origin + u.pathname + u.search') > -1,
-    cleanFallback: src.indexOf('cleanOpts') > -1 && src.indexOf('(clean fallback)') > -1,
     abortGuard: src.indexOf('try { controller = new AbortController(); }') > -1,
-    noSameOriginMode: src.indexOf("mode: proxy.charAt") === -1,
-    instantTypeReject: src.indexOf('function instantTypeReject') > -1,
-    xhrFallback: src.indexOf('function xhrPost') > -1 && src.indexOf('retrying same request over XMLHttpRequest') > -1,
+    /* the removed fallback stack must be GONE */
+    noCloudflare: src.indexOf('OPENROUTER_CLOUDFLARE_WORKER_URL') === -1,
+    noXhr: src.indexOf('function xhrPost') === -1 && src.indexOf('XMLHttpRequest') === -1,
+    noXhrRetryLog: src.indexOf('retrying same request over XMLHttpRequest') === -1,
+    simpleProxyFetch: src.indexOf('fetch(proxy, {') > -1 || src.indexOf('let res = await fetch(proxy, {') > -1,
   };
   console.log('SOLLY SMOKE →', JSON.stringify(checks, null, 1));
   const pass = checks.evaluates && checks.SOLLY_LOADED && checks.publicApi &&
-               checks.describeFetchError && checks.retryLogic && checks.offlineGuard &&
+               checks.describesError && checks.offlineGuard &&
                checks.fetchTabTimeout && checks.sameOriginCollapse && checks.simpleRequest &&
-               checks.fetchOptions && checks.nativeErrorToast && checks.originAbsolute &&
-               checks.cleanFallback && checks.abortGuard && checks.noSameOriginMode &&
-               checks.instantTypeReject && checks.xhrFallback;
+               checks.fetchOptions && checks.nativeError && checks.originAbsolute &&
+               checks.abortGuard && checks.noCloudflare && checks.noXhr &&
+               checks.noXhrRetryLog && checks.simpleProxyFetch;
   console.log('SOLLY SMOKE TEST:', pass ? 'PASS ✓' : 'FAIL ✗');
   process.exitCode = pass ? 0 : 1;
 } catch (e) {
