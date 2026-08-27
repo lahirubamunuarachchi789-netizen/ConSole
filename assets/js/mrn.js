@@ -589,6 +589,14 @@ async function mrnAnalyse() {
               if (!networkFailure(cfErr)) throw cfErr;
               console.warn('[MRN] Cloudflare Worker fetch failed (' + ((Date.now() - tFetch) / 1000).toFixed(1) + 's) - falling back to Vercel proxy');
             }
+            /* If the Worker replies with an HTTP ERROR (e.g. a 401/400 from a
+               Worker that is not actually running the OpenRouter relay), that
+               response is unusable — clear `attempt` so the Vercel proxy chain
+               below runs instead of this model being skipped. */
+            if (attempt && !attempt.ok) {
+              console.warn('[MRN] Cloudflare Worker HTTP ' + attempt.status + ' - falling back to Vercel proxy');
+              attempt = null;
+            }
           }
           if (!attempt) {
             try {

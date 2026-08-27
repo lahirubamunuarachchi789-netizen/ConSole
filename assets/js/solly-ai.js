@@ -1124,6 +1124,16 @@
           if (cfWorker) {
             try {
               res = await fetchWithTimeout(cfWorker, opts, 65000);
+              /* If the CF Worker replies with an HTTP ERROR (e.g. a 401/400
+                 from a Worker that is not actually running the OpenRouter
+                 relay), that response is unusable — fall back to the Vercel
+                 proxy (which returns a real answer) instead of giving up on
+                 this model. Without this, a broken CF endpoint would make
+                 Solly unusable even though the Vercel proxy works. */
+              if (res && !res.ok) {
+                console.warn('[SOLLY] CF Worker HTTP ' + res.status + ' - falling back to Vercel proxy');
+                res = await fetchOrXhr(proxy, wire, opts, t0);
+              }
             } catch (cfErr) {
               if (networkFailure(cfErr)) {
                 console.warn('[SOLLY] CF Worker fetch failed (' + ((Date.now() - t0) / 1000).toFixed(1) + 's) - falling back to Vercel proxy');
